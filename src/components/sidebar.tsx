@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ChevronRight, Folder, FolderOpen, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { buildRecentActivity, resolveQuestionIdFromActivity } from "@/lib/recent-activity";
@@ -15,6 +15,7 @@ export function Sidebar({ userEmail, onCollapse }: { userEmail: string | null; o
   const { categories, addCategory, selectQuestion } = useWorkspaceStore();
   const { theme, setTheme } = useTheme();
   const recentActivity = useMemo(() => buildRecentActivity(categories), [categories]);
+  const [isRecentActivityOpen, setIsRecentActivityOpen] = useState(true);
 
   return (
     <aside className="hidden h-full w-72 shrink-0 flex-col overflow-hidden border-r bg-card/80 backdrop-blur-xl md:flex">
@@ -47,29 +48,56 @@ export function Sidebar({ userEmail, onCollapse }: { userEmail: string | null; o
         </div>
 
         <div className="shrink-0 border-t px-3 py-3">
-          <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent activity</p>
+        <button
+          type="button"
+          onClick={() => setIsRecentActivityOpen((prev) => !prev)}
+          className="mb-2 flex w-full items-center justify-between px-1 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+        >
+          <span>Recent activity</span>
+
+          <span className="text-[10px]">
+            {isRecentActivityOpen ? "−" : "+"}
+          </span>
+        </button>
+
+        {isRecentActivityOpen && (
           <div className="max-h-40 space-y-2 overflow-y-auto">
             {recentActivity.length === 0 ? (
-              <p className="px-1 text-xs text-muted-foreground">Edits will appear here.</p>
+              <p className="px-1 text-xs text-muted-foreground">
+                Edits will appear here.
+              </p>
             ) : (
               recentActivity.map((activity) => (
                 <button
                   key={activity.id}
                   type="button"
                   onClick={() => {
-                    const questionId = resolveQuestionIdFromActivity(categories, activity.id);
+                    const questionId = resolveQuestionIdFromActivity(
+                      categories,
+                      activity.id
+                    );
+
                     if (questionId) selectQuestion(questionId);
                   }}
                   className="w-full rounded-md border bg-background/60 p-2 text-left transition-colors hover:bg-muted/80"
                 >
-                  <p className="line-clamp-1 text-xs font-medium">{activity.label}</p>
-                  <p className="line-clamp-1 text-xs text-muted-foreground">{activity.detail}</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{formatRelativeDate(activity.timestamp)}</p>
+                  <p className="line-clamp-1 text-xs font-medium">
+                    {activity.label}
+                  </p>
+
+                  <p className="line-clamp-1 text-xs text-muted-foreground">
+                    {activity.detail}
+                  </p>
+
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {formatRelativeDate(activity.timestamp)}
+                  </p>
                 </button>
               ))
             )}
           </div>
-        </div>
+        )}
+      </div>
       </div>
 
       <div className="shrink-0 space-y-1 border-t p-3">
