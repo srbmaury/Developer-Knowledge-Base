@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 42 22% 97%;
+  --foreground: 222 23% 9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 23% 9%;
+  --primary: 218 88% 55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 180 14% 92%;
+  --secondary-foreground: 222 23% 12%;
+  --muted: 210 14% 92%;
+  --muted-foreground: 215 12% 43%;
+  --accent: 169 62% 46%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 18% 84%;
+  --input: 214 18% 84%;
+  --ring: 218 88% 55%;
+  --radius: 0.5rem;
+  --markdown-surface: 0 0% 100%;
+  --markdown-surface-fg: 222 23% 9%;
+  --markdown-code-surface: 210 20% 96%;
+}
+
+.dark {
+  --background: 220 18% 8%;
+  --foreground: 210 22% 94%;
+  --card: 220 16% 11%;
+  --card-foreground: 210 22% 94%;
+  --primary: 214 92% 62%;
+  --primary-foreground: 220 18% 8%;
+  --secondary: 218 15% 16%;
+  --secondary-foreground: 210 22% 94%;
+  --muted: 218 15% 16%;
+  --muted-foreground: 214 12% 68%;
+  --accent: 168 70% 44%;
+  --accent-foreground: 220 18% 8%;
+  --destructive: 0 67% 49%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 218 14% 20%;
+  --input: 218 14% 20%;
+  --ring: 214 92% 62%;
+  --markdown-surface: 218 15% 11%;
+  --markdown-surface-fg: 210 22% 94%;
+  --markdown-code-surface: 220 18% 7%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(45, 125, 255, 0.12), transparent 32rem),
+    linear-gradient(180deg, hsl(var(--background)), hsl(var(--background)));
+  color: hsl(var(--foreground));
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.markdown-source {
+  background: hsl(var(--markdown-surface));
+  color: hsl(var(--markdown-surface-fg));
+}
+
+.markdown-source::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+.markdown-preview pre,
+.markdown-preview-body pre {
+  margin: 0.75rem 0;
+  border-radius: 8px;
+  overflow-x: auto;
+  padding: 1rem;
+  background: hsl(var(--markdown-code-surface)) !important;
+}
+
+.markdown-preview pre code,
+.markdown-preview-body pre code {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  white-space: pre;
+  word-break: normal;
+}
+
+.markdown-preview :not(pre) > code,
+.markdown-preview-body :not(pre) > code {
+  border-radius: 4px;
+  background: hsl(var(--muted));
+  padding: 0.1rem 0.35rem;
+  font-size: 0.875em;
+}
