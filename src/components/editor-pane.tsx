@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bot, Copy, FileCode2, Loader2, Pin, Plus, Save, Star, Trash2 } from "lucide-react";
+import { AlertCircle, Bot, CheckCircle2, Copy, FileCode2, Loader2, Pin, Plus, Save, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { DIFFICULTIES, LANGUAGES } from "@/lib/constants";
 import { workspaceSync } from "@/lib/workspace-sync";
@@ -39,7 +39,8 @@ export function EditorPane() {
     updateSolutionContent,
     toggleFavorite,
     toggleImportant,
-    creatingSolutionQuestionIds
+    creatingSolutionQuestionIds,
+    saveStatus
   } = useWorkspaceStore();
   const question = getAllQuestions(categories).find((item) => item.id === selectedQuestionId);
   const solution = question?.solutions.find((item) => item.id === selectedSolutionId) ?? question?.solutions[0];
@@ -172,6 +173,7 @@ export function EditorPane() {
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <SaveStatusIndicator status={saveStatus} />
               <select
                 value={question.difficulty}
                 onChange={(event) => updateQuestionDifficulty(question.id, event.target.value as Difficulty)}
@@ -336,5 +338,23 @@ export function EditorPane() {
         </Tabs>
       </div>
     </article>
+  );
+}
+
+function SaveStatusIndicator({ status }: { status: "idle" | "pending" | "saving" | "saved" | "error" }) {
+  if (status === "idle") return null;
+
+  const content = {
+    pending: { label: "Unsaved changes", icon: <Loader2 className="h-3.5 w-3.5 animate-spin" /> },
+    saving: { label: "Saving", icon: <Loader2 className="h-3.5 w-3.5 animate-spin" /> },
+    saved: { label: "Saved", icon: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> },
+    error: { label: "Save failed", icon: <AlertCircle className="h-3.5 w-3.5 text-destructive" /> }
+  }[status];
+
+  return (
+    <span className="inline-flex h-9 items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs text-muted-foreground shadow-sm">
+      {content.icon}
+      {content.label}
+    </span>
   );
 }

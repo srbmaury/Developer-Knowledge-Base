@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { workspaceSync } from "@/lib/workspace-sync";
 import type { Category, Difficulty, Question, Solution, SolutionLanguage } from "@/types/knowledge";
 
+export type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
+
 type WorkspaceState = {
   categories: Category[];
   selectedCategoryId: string | null;
@@ -16,6 +18,7 @@ type WorkspaceState = {
   creatingCategoryKeys: string[];
   creatingQuestionCategoryIds: string[];
   creatingSolutionQuestionIds: string[];
+  saveStatus: SaveStatus;
   query: string;
   commandOpen: boolean;
   setInitialData: (categories: Category[]) => void;
@@ -200,6 +203,13 @@ const categoryNameSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const questionTitleSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const questionDescriptionSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const solutionTitleSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let activeSaveCount = 0;
+let savedStatusTimer: ReturnType<typeof setTimeout> | null = null;
+let setSaveStatus: ((status: SaveStatus) => void) | null = null;
+
+function temporaryId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 function setPendingValue(values: string[], value: string, pending: boolean) {
   return pending
@@ -207,66 +217,103 @@ function setPendingValue(values: string[], value: string, pending: boolean) {
     : values.filter((item) => item !== value);
 }
 
+function markSavePending() {
+  if (savedStatusTimer) clearTimeout(savedStatusTimer);
+  setSaveStatus?.("pending");
+}
+
+function runSave(operation: () => Promise<unknown>) {
+  activeSaveCount += 1;
+  if (savedStatusTimer) clearTimeout(savedStatusTimer);
+  setSaveStatus?.("saving");
+
+  void operation()
+    .then(() => {
+      activeSaveCount -= 1;
+      if (activeSaveCount === 0) {
+        setSaveStatus?.("saved");
+        savedStatusTimer = setTimeout(() => {
+          setSaveStatus?.("idle");
+          savedStatusTimer = null;
+        }, 1400);
+      }
+    })
+    .catch(() => {
+      activeSaveCount = Math.max(0, activeSaveCount - 1);
+      setSaveStatus?.("error");
+    });
+}
+
 function scheduleCategoryNameSave(categoryId: string, name: string) {
+  if (categoryId.startsWith("temp-")) return;
   const existing = categoryNameSaveTimers.get(categoryId);
   if (existing) clearTimeout(existing);
+  markSavePending();
 
   categoryNameSaveTimers.set(
     categoryId,
     setTimeout(() => {
-      void workspaceSync.updateCategory(categoryId, name);
+      runSave(() => workspaceSync.updateCategory(categoryId, name));
       categoryNameSaveTimers.delete(categoryId);
     }, 650)
   );
 }
 
 function scheduleQuestionTitleSave(questionId: string, title: string) {
+  if (questionId.startsWith("temp-")) return;
   const existing = questionTitleSaveTimers.get(questionId);
   if (existing) clearTimeout(existing);
+  markSavePending();
 
   questionTitleSaveTimers.set(
     questionId,
     setTimeout(() => {
-      void workspaceSync.updateQuestion(questionId, { title });
+      runSave(() => workspaceSync.updateQuestion(questionId, { title }));
       questionTitleSaveTimers.delete(questionId);
     }, 650)
   );
 }
 
 function scheduleQuestionDescriptionSave(questionId: string, description: string) {
+  if (questionId.startsWith("temp-")) return;
   const existing = questionDescriptionSaveTimers.get(questionId);
   if (existing) clearTimeout(existing);
+  markSavePending();
 
   questionDescriptionSaveTimers.set(
     questionId,
     setTimeout(() => {
-      void workspaceSync.updateQuestion(questionId, { description });
+      runSave(() => workspaceSync.updateQuestion(questionId, { description }));
       questionDescriptionSaveTimers.delete(questionId);
     }, 650)
   );
 }
 
 function scheduleSolutionTitleSave(solutionId: string, title: string) {
+  if (solutionId.startsWith("temp-")) return;
   const existing = solutionTitleSaveTimers.get(solutionId);
   if (existing) clearTimeout(existing);
+  markSavePending();
 
   solutionTitleSaveTimers.set(
     solutionId,
     setTimeout(() => {
-      void workspaceSync.updateSolution(solutionId, { title });
+      runSave(() => workspaceSync.updateSolution(solutionId, { title }));
       solutionTitleSaveTimers.delete(solutionId);
     }, 650)
   );
 }
 
 function scheduleSolutionSave(solutionId: string, content: string) {
+  if (solutionId.startsWith("temp-")) return;
   const existing = contentSaveTimers.get(solutionId);
   if (existing) clearTimeout(existing);
+  markSavePending();
 
   contentSaveTimers.set(
     solutionId,
     setTimeout(() => {
-      void workspaceSync.updateSolution(solutionId, { content });
+      runSave(() => workspaceSync.updateSolution(solutionId, { content }));
       contentSaveTimers.delete(solutionId);
     }, 600)
   );
@@ -275,6 +322,7 @@ function scheduleSolutionSave(solutionId: string, content: string) {
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set, get) => ({
+      ...(setSaveStatus ??= (status: SaveStatus) => set({ saveStatus: status })),
       categories: [],
       selectedCategoryId: null,
       selectedQuestionId: null,
@@ -284,6 +332,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       creatingCategoryKeys: [],
       creatingQuestionCategoryIds: [],
       creatingSolutionQuestionIds: [],
+      saveStatus: "idle",
       query: "",
       commandOpen: false,
       setInitialData: (categories) => {
@@ -338,44 +387,60 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         if (parentId && !canEditCategory(categories, parentId)) return;
         const pendingKey = parentId ?? "__root__";
         if (get().creatingCategoryKeys.includes(pendingKey)) return;
-        set((state) => ({
-          creatingCategoryKeys: setPendingValue(state.creatingCategoryKeys, pendingKey, true)
-        }));
+        const tempId = temporaryId("temp-category");
         const siblingCount = parentId
           ? (findCategory(categories, parentId)?.children.length ?? 0)
           : categories.length;
+        const optimisticCategory: Category = {
+          id: tempId,
+          userId: "",
+          name,
+          isPublic: false,
+          canEdit: true,
+          parentId,
+          order: siblingCount,
+          createdAt: new Date().toISOString(),
+          children: [],
+          questions: []
+        };
+
+        set((state) => ({
+          creatingCategoryKeys: setPendingValue(state.creatingCategoryKeys, pendingKey, true),
+          categories: parentId
+            ? mapCategories(state.categories, (item) =>
+                item.id === parentId ? { ...item, children: [...item.children, optimisticCategory] } : item
+              )
+            : [...state.categories, optimisticCategory],
+          selectedCategoryId: tempId,
+          expandedCategoryIds: [...state.expandedCategoryIds, tempId, ...(parentId ? [parentId] : [])].filter(
+            (id, index, ids) => ids.indexOf(id) === index
+          )
+        }));
 
         try {
           const result = await workspaceSync.createCategory(name, parentId, siblingCount);
           if (!result.ok || !("id" in result)) {
             toast.error("message" in result ? result.message : "Failed to create category.");
+            set((state) => ({
+              categories: removeCategoryFromTree(state.categories, tempId),
+              selectedCategoryId: state.selectedCategoryId === tempId ? firstCategoryId(removeCategoryFromTree(state.categories, tempId)) : state.selectedCategoryId
+            }));
             return;
           }
-
-          const category: Category = {
-            id: result.id,
-            userId: "",
-            name,
-            isPublic: false,
-            canEdit: true,
-            parentId,
-            order: siblingCount,
-            createdAt: new Date().toISOString(),
-            children: [],
-            questions: []
-          };
+          const currentCategory = findCategory(get().categories, tempId);
 
           set((state) => ({
-            categories: parentId
-              ? mapCategories(state.categories, (item) =>
-                  item.id === parentId ? { ...item, children: [...item.children, category] } : item
-                )
-              : [...state.categories, category],
-            selectedCategoryId: category.id,
-            expandedCategoryIds: [...state.expandedCategoryIds, category.id, ...(parentId ? [parentId] : [])].filter(
+            categories: mapCategories(state.categories, (item) =>
+              item.id === tempId ? { ...item, id: result.id } : item
+            ),
+            selectedCategoryId: state.selectedCategoryId === tempId ? result.id : state.selectedCategoryId,
+            expandedCategoryIds: state.expandedCategoryIds.map((id) => (id === tempId ? result.id : id)).filter(
               (id, index, ids) => ids.indexOf(id) === index
             )
           }));
+          if (currentCategory && currentCategory.name !== name) {
+            runSave(() => workspaceSync.updateCategory(result.id, currentCategory.name));
+          }
         } finally {
           set((state) => ({
             creatingCategoryKeys: setPendingValue(state.creatingCategoryKeys, pendingKey, false)
@@ -440,52 +505,103 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const { categories } = get();
         if (!canEditCategory(categories, categoryId)) return;
         if (get().creatingQuestionCategoryIds.includes(categoryId)) return;
-        set((state) => ({
-          creatingQuestionCategoryIds: setPendingValue(state.creatingQuestionCategoryIds, categoryId, true)
-        }));
+        const tempQuestionId = temporaryId("temp-question");
+        const tempSolutionId = temporaryId("temp-solution");
         const order = findCategory(categories, categoryId)?.questions.length ?? 0;
+        const now = new Date().toISOString();
+        const optimisticQuestion: Question = {
+          id: tempQuestionId,
+          categoryId,
+          title,
+          description: "",
+          difficulty: "MEDIUM",
+          isFavorite: false,
+          isPinned: false,
+          order,
+          createdAt: now,
+          updatedAt: now,
+          solutions: [
+            {
+              id: tempSolutionId,
+              questionId: tempQuestionId,
+              title: "Best Approach",
+              language: "none",
+              content: "",
+              notes: "",
+              order: 0,
+              createdAt: now,
+              updatedAt: now
+            }
+          ]
+        };
+
+        set((state) => ({
+          creatingQuestionCategoryIds: setPendingValue(state.creatingQuestionCategoryIds, categoryId, true),
+          categories: mapCategories(state.categories, (cat) =>
+            cat.id === categoryId
+              ? { ...cat, questions: sortQuestions([optimisticQuestion, ...cat.questions]) }
+              : cat
+          ),
+          selectedCategoryId: categoryId,
+          selectedQuestionId: tempQuestionId,
+          selectedSolutionId: tempSolutionId
+        }));
 
         try {
           const result = await workspaceSync.createQuestion(categoryId, title, order);
           if (!result.ok || !("question" in result) || !result.question) {
             toast.error("message" in result ? result.message : "Failed to create question.");
+            set((state) => ({
+              categories: removeQuestion(state.categories, tempQuestionId),
+              selectedQuestionId: state.selectedQuestionId === tempQuestionId ? null : state.selectedQuestionId,
+              selectedSolutionId: state.selectedSolutionId === tempSolutionId ? null : state.selectedSolutionId
+            }));
             return;
           }
 
-          const question: Question = {
-            id: result.question.id,
-            categoryId,
-            title,
-            description: "",
-            difficulty: "MEDIUM",
-            isFavorite: false,
-            isPinned: false,
-            order,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            solutions: [
-              {
-                id: result.question.solutionId ?? "",
-                questionId: result.question.id,
-                title: "Best Approach",
-                language: "none",
-                content: "",
-                notes: "",
-                order: 0,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-              }
-            ]
-          };
+          const currentQuestion = flattenQuestions(get().categories).find((item) => item.id === tempQuestionId);
 
           set((state) => ({
-            categories: mapCategories(state.categories, (cat) =>
-              cat.id === categoryId ? { ...cat, questions: sortQuestions([question, ...cat.questions]) } : cat
-            ),
-            selectedCategoryId: categoryId,
-            selectedQuestionId: question.id,
-            selectedSolutionId: question.solutions[0].id
+            categories: updateQuestionInTree(state.categories, tempQuestionId, (question) => ({
+              ...question,
+              id: result.question.id,
+              solutions: question.solutions.map((solution) =>
+                solution.id === tempSolutionId
+                  ? {
+                      ...solution,
+                      id: result.question.solutionId ?? solution.id,
+                      questionId: result.question.id
+                    }
+                  : solution
+              )
+            })),
+            selectedQuestionId:
+              state.selectedQuestionId === tempQuestionId ? result.question.id : state.selectedQuestionId,
+            selectedSolutionId:
+              state.selectedSolutionId === tempSolutionId
+                ? result.question.solutionId ?? tempSolutionId
+                : state.selectedSolutionId
           }));
+          if (currentQuestion) {
+            if (currentQuestion.title !== title || currentQuestion.description) {
+              runSave(() =>
+                workspaceSync.updateQuestion(result.question.id, {
+                  ...(currentQuestion.title !== title ? { title: currentQuestion.title } : {}),
+                  ...(currentQuestion.description ? { description: currentQuestion.description } : {})
+                })
+              );
+            }
+            const currentSolution = currentQuestion.solutions.find((item) => item.id === tempSolutionId);
+            if (currentSolution && currentSolution.content && result.question.solutionId) {
+              runSave(() =>
+                workspaceSync.updateSolution(result.question.solutionId!, {
+                  content: currentSolution.content,
+                  title: currentSolution.title,
+                  language: currentSolution.language
+                })
+              );
+            }
+          }
         } finally {
           set((state) => ({
             creatingQuestionCategoryIds: setPendingValue(state.creatingQuestionCategoryIds, categoryId, false)
@@ -553,38 +669,60 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       addSolution: async (questionId, title) => {
         if (!canEditQuestion(get().categories, questionId)) return;
         if (get().creatingSolutionQuestionIds.includes(questionId)) return;
-        set((state) => ({
-          creatingSolutionQuestionIds: setPendingValue(state.creatingSolutionQuestionIds, questionId, true)
-        }));
+        const tempSolutionId = temporaryId("temp-solution");
         const question = flattenQuestions(get().categories).find((item) => item.id === questionId);
         const order = question?.solutions.length ?? 0;
+        const optimisticSolution: Solution = {
+          id: tempSolutionId,
+          questionId,
+          title,
+          language: "none",
+          content: "",
+          notes: "",
+          order,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        set((state) => ({
+          creatingSolutionQuestionIds: setPendingValue(state.creatingSolutionQuestionIds, questionId, true),
+          categories: updateQuestionInTree(state.categories, questionId, (item) => ({
+            ...item,
+            solutions: [...item.solutions, optimisticSolution]
+          })),
+          selectedSolutionId: tempSolutionId
+        }));
 
         try {
           const result = await workspaceSync.createSolution(questionId, title);
           if (!result.ok || !("id" in result)) {
             toast.error("Failed to create solution.");
+            set((state) => ({
+              categories: removeSolutionFromTree(state.categories, tempSolutionId),
+              selectedSolutionId: state.selectedSolutionId === tempSolutionId ? question?.solutions[0]?.id ?? null : state.selectedSolutionId
+            }));
             return;
           }
-
-          const solution: Solution = {
-            id: result.id,
-            questionId,
-            title,
-            language: "none",
-            content: "",
-            notes: "",
-            order,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          };
+          const currentSolution = flattenQuestions(get().categories)
+            .flatMap((item) => item.solutions)
+            .find((item) => item.id === tempSolutionId);
 
           set((state) => ({
-            categories: updateQuestionInTree(state.categories, questionId, (q) => ({
-              ...q,
-              solutions: [...q.solutions, solution]
+            categories: updateSolutionInTree(state.categories, tempSolutionId, (solution) => ({
+              ...solution,
+              id: result.id
             })),
-            selectedSolutionId: solution.id
+            selectedSolutionId: state.selectedSolutionId === tempSolutionId ? result.id : state.selectedSolutionId
           }));
+          if (currentSolution && (currentSolution.title !== title || currentSolution.content || currentSolution.language !== "none")) {
+            runSave(() =>
+              workspaceSync.updateSolution(result.id, {
+                title: currentSolution.title,
+                content: currentSolution.content,
+                language: currentSolution.language
+              })
+            );
+          }
         } finally {
           set((state) => ({
             creatingSolutionQuestionIds: setPendingValue(state.creatingSolutionQuestionIds, questionId, false)
