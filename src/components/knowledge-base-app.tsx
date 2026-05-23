@@ -12,7 +12,13 @@ import { useWorkspaceStore } from "@/store/workspace-store";
 import type { Category } from "@/types/knowledge";
 import { ListCollapse, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Search } from "lucide-react";
 
-export function KnowledgeBaseApp({ initialCategories }: { initialCategories: Category[] }) {
+export function KnowledgeBaseApp({
+  initialCategories,
+  userEmail
+}: {
+  initialCategories: Category[];
+  userEmail: string | null;
+}) {
   const { categories, setInitialData, setCommandOpen, selectedCategoryId, addQuestion } = useWorkspaceStore();
   const [categoriesOpen, setCategoriesOpen] = useState(true);
   const [questionsOpen, setQuestionsOpen] = useState(true);
@@ -32,7 +38,7 @@ export function KnowledgeBaseApp({ initialCategories }: { initialCategories: Cat
   return (
     <TooltipProvider>
       <main className="flex h-screen overflow-hidden bg-background/85 text-foreground">
-        {categoriesOpen ? <Sidebar onCollapse={() => setCategoriesOpen(false)} /> : null}
+        {categoriesOpen ? <Sidebar userEmail={userEmail} onCollapse={() => setCategoriesOpen(false)} /> : null}
         {questionsOpen ? (
           <section className="hidden h-full w-80 shrink-0 overflow-hidden border-r bg-background/70 lg:flex lg:flex-col">
             <QuestionList onCollapse={() => setQuestionsOpen(false)} />

@@ -7,6 +7,7 @@ import {
   parseJsonBody,
   type GeneratedAnswer
 } from "@/lib/ai-answer";
+import { getSessionUser } from "@/server/auth";
 import type { Difficulty } from "@/types/knowledge";
 
 type GenerateAnswerRequest = {
@@ -81,6 +82,11 @@ function buildUserPrompt(body: GenerateAnswerRequest, lang: string) {
 }
 
 export async function POST(request: NextRequest) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "You must be signed in." }, { status: 401 });
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {

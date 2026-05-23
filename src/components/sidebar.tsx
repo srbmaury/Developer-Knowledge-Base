@@ -7,10 +7,11 @@ import { buildRecentActivity, resolveQuestionIdFromActivity } from "@/lib/recent
 import { formatRelativeDate, cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspace-store";
 import type { Category } from "@/types/knowledge";
+import { UserMenu } from "@/components/user-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export function Sidebar({ onCollapse }: { onCollapse: () => void }) {
+export function Sidebar({ userEmail, onCollapse }: { userEmail: string | null; onCollapse: () => void }) {
   const { categories, addCategory, selectQuestion } = useWorkspaceStore();
   const { theme, setTheme } = useTheme();
   const recentActivity = useMemo(() => buildRecentActivity(categories), [categories]);
@@ -23,7 +24,7 @@ export function Sidebar({ onCollapse }: { onCollapse: () => void }) {
         </div>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">Developer Knowledge Base</p>
-          <p className="text-xs text-muted-foreground">Personal workspace</p>
+          <p className="text-xs text-muted-foreground">Your private workspace</p>
         </div>
         <Button className="ml-auto h-8 w-8" size="icon" variant="ghost" onClick={onCollapse} aria-label="Collapse categories sidebar">
           <PanelLeftClose className="h-4 w-4" />
@@ -71,7 +72,8 @@ export function Sidebar({ onCollapse }: { onCollapse: () => void }) {
         </div>
       </div>
 
-      <div className="shrink-0 border-t p-3">
+      <div className="shrink-0 space-y-1 border-t p-3">
+        <UserMenu email={userEmail} />
         <Button
           className="w-full justify-start"
           variant="ghost"

@@ -2,23 +2,44 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getOwnedCategory, getOwnedQuestion, getOwnedSolution } from "@/server/access";
+import { requireUserId } from "@/server/auth";
 import {
   assignOrdersByPinGroups,
   getNextQuestionOrder
 } from "@/server/question-order";
 import type { Difficulty, SolutionLanguage } from "@/types/knowledge";
 
+async function unauthorized() {
+  return { ok: false as const, message: "You must be signed in." };
+}
+
 export async function createCategoryAction(input: { name: string; parentId?: string | null; order?: number }) {
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
   if (!input.name.trim()) {
     return { ok: false as const, message: "Category name is required." };
   }
 
+  if (input.parentId) {
+    const parent = await getOwnedCategory(input.parentId, userId);
+    if (!parent) {
+      return { ok: false as const, message: "Parent category not found." };
+    }
+  }
+
   const siblings = await prisma.category.count({
-    where: { parentId: input.parentId ?? null }
+    where: { parentId: input.parentId ?? null, userId }
   });
 
   const category = await prisma.category.create({
     data: {
+      userId,
       name: input.name.trim(),
       parentId: input.parentId ?? null,
       order: input.order ?? siblings
@@ -30,6 +51,18 @@ export async function createCategoryAction(input: { name: string; parentId?: str
 }
 
 export async function updateCategoryAction(input: { categoryId: string; name: string }) {
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const category = await getOwnedCategory(input.categoryId, userId);
+  if (!category) {
+    return { ok: false as const, message: "Category not found." };
+  }
+
   await prisma.category.update({
     where: { id: input.categoryId },
     data: { name: input.name.trim() }
@@ -40,6 +73,18 @@ export async function updateCategoryAction(input: { categoryId: string; name: st
 }
 
 export async function deleteCategoryAction(input: { categoryId: string }) {
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const category = await getOwnedCategory(input.categoryId, userId);
+  if (!category) {
+    return { ok: false as const, message: "Category not found." };
+  }
+
   await prisma.category.delete({ where: { id: input.categoryId } });
   revalidatePath("/");
   return { ok: true as const };
@@ -52,8 +97,16 @@ export async function createQuestionAction(input: {
   difficulty?: Difficulty;
   order?: number;
 }) {
-  if (!input.title.trim() && input.title !== "") {
-    return { ok: false as const, message: "Question title is required." };
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const category = await getOwnedCategory(input.categoryId, userId);
+  if (!category) {
+    return { ok: false as const, message: "Category not found." };
   }
 
   const isPinned = false;
@@ -98,8 +151,15 @@ export async function updateQuestionAction(input: {
   isFavorite?: boolean;
   isPinned?: boolean;
 }) {
-  const existing = await prisma.question.findUnique({
-    where: { id: input.questionId },
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const existing = await prisma.question.findFirst({
+    where: { id: input.questionId, category: { userId } },
     select: { categoryId: true, isPinned: true }
   });
 
@@ -130,12 +190,36 @@ export async function updateQuestionAction(input: {
 }
 
 export async function deleteQuestionAction(input: { questionId: string }) {
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const question = await getOwnedQuestion(input.questionId, userId);
+  if (!question) {
+    return { ok: false as const, message: "Question not found." };
+  }
+
   await prisma.question.delete({ where: { id: input.questionId } });
   revalidatePath("/");
   return { ok: true as const };
 }
 
 export async function reorderQuestionsAction(input: { categoryId: string; questionIds: string[] }) {
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const category = await getOwnedCategory(input.categoryId, userId);
+  if (!category) {
+    return { ok: false as const, message: "Category not found." };
+  }
+
   const questions = await prisma.question.findMany({
     where: { id: { in: input.questionIds }, categoryId: input.categoryId },
     select: { id: true, isPinned: true }
@@ -157,6 +241,18 @@ export async function reorderQuestionsAction(input: { categoryId: string; questi
 }
 
 export async function createSolutionAction(input: { questionId: string; title: string }) {
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const question = await getOwnedQuestion(input.questionId, userId);
+  if (!question) {
+    return { ok: false as const, message: "Question not found." };
+  }
+
   const count = await prisma.solution.count({ where: { questionId: input.questionId } });
   const solution = await prisma.solution.create({
     data: {
@@ -180,6 +276,18 @@ export async function updateSolutionAction(input: {
   content?: string;
   notes?: string;
 }) {
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const owned = await getOwnedSolution(input.solutionId, userId);
+  if (!owned) {
+    return { ok: false as const, message: "Approach not found." };
+  }
+
   const solution = await prisma.solution.update({
     where: { id: input.solutionId },
     data: {
@@ -201,11 +309,14 @@ export async function updateSolutionAction(input: {
 }
 
 export async function deleteSolutionAction(input: { solutionId: string }) {
-  const solution = await prisma.solution.findUnique({
-    where: { id: input.solutionId },
-    select: { questionId: true }
-  });
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
 
+  const solution = await getOwnedSolution(input.solutionId, userId);
   if (!solution) {
     return { ok: false as const, message: "Approach not found." };
   }

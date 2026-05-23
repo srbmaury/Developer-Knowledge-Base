@@ -11,25 +11,57 @@ A developer-focused personal knowledge base built with Next.js 15, TypeScript, T
 - Raw markdown editor with live preview (GFM, syntax highlighting)
 - Global search and command palette (`Ctrl+K`)
 - PostgreSQL persistence via Prisma and Neon
+- **Per-user workspaces** with Supabase email/password sign-in
 - AI answer generation (structured markdown + suggested difficulty via OpenAI)
 
 ## Prerequisites
 
 - Node.js 20+
-- A Neon Postgres project with pooled + direct connection strings in `.env` (see `.env.example`)
+- A Neon Postgres project with pooled + direct connection strings in `.env`
+- A Supabase project for authentication (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`)
 
 ## Getting Started
 
 ```bash
 npm install
 cp .env.example .env
-# Fill in DATABASE_URL, DIRECT_URL (Neon), and OpenAI keys
+# Fill in DATABASE_URL, DIRECT_URL (Neon), Supabase keys, and OpenAI keys
 npm run prisma:generate
 npm run prisma:migrate
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). You start with an **empty workspace** — add categories and questions in the app.
+Open [http://localhost:3000](http://localhost:3000). You will be redirected to **Sign in**. Each account gets its own private categories and notes.
+
+### Supabase auth setup
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Copy **Project URL** and **anon public** key into `.env`.
+3. **Authentication → Providers → Email**: enable email provider; for local dev you may disable “Confirm email”.
+4. **Authentication → URL Configuration**:
+   - Site URL: `http://localhost:3000`
+   - Redirect URLs: `http://localhost:3000/auth/callback`
+
+> **Note:** The `add_user_id` migration clears existing categories/questions so every row is owned by a signed-in user. Back up data first if needed.
+
+## Database tables missing?
+
+Your app data lives in **Neon** (`DATABASE_URL` / `DIRECT_URL`), not in Supabase. In the Neon console, open **SQL Editor** or **Tables** for the same project as `.env`.
+
+If migrations failed partway (empty tables, only `_prisma_migrations`), reset and re-apply:
+
+```bash
+# Stop npm run dev first
+npm run prisma:reset
+```
+
+Or apply pending migrations:
+
+```bash
+npm run prisma:migrate
+```
+
+Verify tables: `node scripts/check-db.mjs` (should list `Category`, `Question`, `Solution`).
 
 ## Fresh database (wipe all data)
 
@@ -47,8 +79,8 @@ This runs `prisma migrate reset` (drops all tables, re-runs migrations, runs the
 |----------|---------|
 | `DATABASE_URL` | Neon **pooled** URL (`-pooler` host, `pgbouncer=true`) |
 | `DIRECT_URL` | Neon **direct** URL (non-pooler host, for `prisma migrate`) |
-| `NEXT_PUBLIC_SUPABASE_URL` | Optional Supabase URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Optional Supabase anon key |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (auth, required) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (auth, required) |
 | `OPENAI_API_KEY` | AI answer generation (optional) |
 | `OPENAI_MODEL` | OpenAI model id (optional) |
 

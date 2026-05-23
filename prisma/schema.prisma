@@ -16,6 +16,7 @@ enum Difficulty {
 
 model Category {
   id        String     @id @default(cuid())
+  userId    String
   name      String
   parentId  String?
   parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
@@ -26,6 +27,7 @@ model Category {
   updatedAt DateTime   @updatedAt
 
   @@index([parentId])
+  @@index([userId])
 }
 
 model Question {
