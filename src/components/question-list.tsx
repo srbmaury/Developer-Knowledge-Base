@@ -23,7 +23,13 @@ import { DIFFICULTIES, difficultyBadgeClass } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatRelativeDate } from "@/lib/utils";
-import { getAllQuestions, sortQuestionsForDisplay, useWorkspaceStore } from "@/store/workspace-store";
+import {
+  getAllQuestions,
+  getCategoryById,
+  getCategoryForQuestion,
+  sortQuestionsForDisplay,
+  useWorkspaceStore
+} from "@/store/workspace-store";
 import type { Question } from "@/types/knowledge";
 
 function stopDragPointer(event: React.PointerEvent) {
@@ -34,16 +40,21 @@ function SortableQuestionCard({
   question,
   compact,
   selected,
+  canEdit,
   onSelect,
   onDelete
 }: {
   question: Question;
   compact: boolean;
   selected: boolean;
+  canEdit: boolean;
   onSelect: () => void;
   onDelete: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: question.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: question.id,
+    disabled: !canEdit
+  });
   const difficulty = DIFFICULTIES.find((item) => item.value === question.difficulty);
 
   return (
@@ -56,15 +67,17 @@ function SortableQuestionCard({
         isDragging && "z-10 border-primary/50 opacity-90 shadow-lg",
         compact && "min-w-72 shrink-0"
       )}
-      {...attributes}
-      {...listeners}
+      {...(canEdit ? attributes : {})}
+      {...(canEdit ? listeners : {})}
     >
-      <div
-        className="absolute left-2 top-3 flex h-7 w-5 cursor-grab items-center justify-center text-muted-foreground/50 group-hover:text-muted-foreground active:cursor-grabbing"
-        aria-hidden
-      >
-        <GripVertical className="h-4 w-4" />
-      </div>
+      {canEdit ? (
+        <div
+          className="absolute left-2 top-3 flex h-7 w-5 cursor-grab items-center justify-center text-muted-foreground/50 group-hover:text-muted-foreground active:cursor-grabbing"
+          aria-hidden
+        >
+          <GripVertical className="h-4 w-4" />
+        </div>
+      ) : null}
 
       <div
         role="button"
@@ -94,20 +107,22 @@ function SortableQuestionCard({
         <p className="mt-3 text-[11px] text-muted-foreground">Updated {formatRelativeDate(question.updatedAt)}</p>
       </div>
 
-      <Button
-        className="absolute right-2 top-2 h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
-        size="icon"
-        variant="ghost"
-        onPointerDown={stopDragPointer}
-        onClick={(event) => {
-          event.stopPropagation();
-          onDelete();
-        }}
-        aria-label={`Delete ${question.title}`}
-        title="Delete question"
-      >
-        <Trash2 className="h-4 w-4 text-destructive" />
-      </Button>
+      {canEdit ? (
+        <Button
+          className="absolute right-2 top-2 h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
+          size="icon"
+          variant="ghost"
+          onPointerDown={stopDragPointer}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          aria-label={`Delete ${question.title}`}
+          title="Delete question"
+        >
+          <Trash2 className="h-4 w-4 text-destructive" />
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -128,6 +143,8 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
   );
   const pinnedQuestions = questions.filter((question) => question.isPinned);
   const unpinnedQuestions = questions.filter((question) => !question.isPinned);
+  const selectedCategory = getCategoryById(categories, selectedCategoryId);
+  const canEditSelectedCategory = selectedCategory?.canEdit ?? false;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -151,17 +168,21 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
     ];
     const categoryId = list[0]?.categoryId ?? selectedCategoryId;
     if (!categoryId) return;
+    const category = getCategoryById(categories, categoryId);
+    if (!category?.canEdit) return;
 
     reorderQuestions(categoryId, mergedIds);
   }
 
   function renderQuestionCard(question: Question) {
+    const canEdit = getCategoryForQuestion(categories, question.id)?.canEdit ?? false;
     return (
       <SortableQuestionCard
         key={question.id}
         question={question}
         compact={compact}
         selected={selectedQuestionId === question.id}
+        canEdit={canEdit}
         onSelect={() => selectQuestion(question.id)}
         onDelete={() => {
           if (window.confirm(`Delete "${question.title || "Untitled question"}"?`)) {
@@ -183,14 +204,16 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
               {questions.length > 1 ? " · drag to reorder within pinned or other notes" : ""}
             </p>
           </div>
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
-            aria-label="Add question"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          {canEditSelectedCategory ? (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
+              aria-label="Add question"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          ) : null}
           {onCollapse ? (
             <Button size="icon" variant="ghost" onClick={onCollapse} aria-label="Collapse questions sidebar">
               <PanelRightClose className="h-4 w-4" />
@@ -207,11 +230,15 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
         {questions.length === 0 ? (
           <div className="flex min-h-44 flex-col items-center justify-center rounded-lg border border-dashed p-5 text-center">
             <p className="text-sm font-medium">No questions yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">Create one to start collecting snippets and approaches.</p>
-            <Button className="mt-4" size="sm" onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}>
-              <Plus className="h-4 w-4" />
-              Add question
-            </Button>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {canEditSelectedCategory ? "Create one to start collecting snippets and approaches." : "No public questions here yet."}
+            </p>
+            {canEditSelectedCategory ? (
+              <Button className="mt-4" size="sm" onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}>
+                <Plus className="h-4 w-4" />
+                Add question
+              </Button>
+            ) : null}
           </div>
         ) : (
           <div className={cn(compact ? "flex gap-2" : "space-y-3")}>

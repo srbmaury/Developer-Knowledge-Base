@@ -47,10 +47,13 @@ function mapQuestion(question: CategoryWithRelations["questions"][number]): Ques
   };
 }
 
-function mapCategoryRow(row: CategoryWithRelations): Category {
+function mapCategoryRow(row: CategoryWithRelations, viewerUserId: string | null): Category {
   return {
     id: row.id,
+    userId: row.userId,
     name: row.name,
+    isPublic: row.isPublic,
+    canEdit: viewerUserId !== null && row.userId === viewerUserId,
     parentId: row.parentId,
     order: row.order,
     createdAt: row.createdAt.toISOString(),
@@ -59,8 +62,8 @@ function mapCategoryRow(row: CategoryWithRelations): Category {
   };
 }
 
-export function buildCategoryTree(rows: CategoryWithRelations[]): Category[] {
-  const nodes = new Map(rows.map((row) => [row.id, mapCategoryRow(row)]));
+export function buildCategoryTree(rows: CategoryWithRelations[], viewerUserId: string | null): Category[] {
+  const nodes = new Map(rows.map((row) => [row.id, mapCategoryRow(row, viewerUserId)]));
   const roots: Category[] = [];
 
   for (const node of nodes.values()) {

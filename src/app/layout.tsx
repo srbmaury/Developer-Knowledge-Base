@@ -4,7 +4,10 @@ import { Providers } from "@/components/providers";
 
 export const metadata: Metadata = {
   title: "Developer Knowledge Base",
-  description: "Personal technical notes, snippets, interview prep, and system design workspace."
+  description: "Personal technical notes, snippets, interview prep, and system design workspace.",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }]
+  }
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

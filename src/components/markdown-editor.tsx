@@ -13,6 +13,7 @@ type MarkdownEditorProps = {
   fillPane?: boolean;
   /** Hides the top label row when used inside MarkdownWorkspace. */
   embedded?: boolean;
+  readOnly?: boolean;
 };
 
 export function MarkdownEditor({
@@ -21,7 +22,8 @@ export function MarkdownEditor({
   language,
   className,
   fillPane,
-  embedded
+  embedded,
+  readOnly = false
 }: MarkdownEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -73,12 +75,13 @@ export function MarkdownEditor({
           ) : null}
         </div>
       ) : null}
-      <MarkdownToolbar onAction={applyFormat} />
+      {!readOnly ? <MarkdownToolbar onAction={applyFormat} /> : null}
       <textarea
         ref={textareaRef}
         value={content}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={handleKeyDown}
+        readOnly={readOnly}
         spellCheck={false}
         className={cn(
           "markdown-source w-full flex-1 resize-none border-0 px-4 py-4 font-mono text-[13px] leading-6 shadow-none outline-none focus-visible:ring-0",

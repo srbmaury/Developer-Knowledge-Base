@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { LogOut, User } from "lucide-react";
 import { signOutAction } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,17 @@ type UserMenuProps = {
 };
 
 export function UserMenu({ email }: UserMenuProps) {
+  if (!email) {
+    return (
+      <Button className="w-full justify-start gap-2" variant="ghost" asChild>
+        <Link href="/login">
+          <User className="h-4 w-4 shrink-0" />
+          Sign in
+        </Link>
+      </Button>
+    );
+  }
+
   const displayEmail = email ?? "Signed in";
 
   return (

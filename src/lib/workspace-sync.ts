@@ -7,6 +7,7 @@ import {
   deleteSolutionAction,
   reorderQuestionsAction,
   updateCategoryAction,
+  updateCategoryVisibilityAction,
   updateQuestionAction,
   updateSolutionAction
 } from "@/app/actions";
@@ -25,6 +26,9 @@ export const workspaceSync = {
     createCategoryAction({ name, parentId, order }),
 
   updateCategory: (categoryId: string, name: string) => updateCategoryAction({ categoryId, name }),
+
+  updateCategoryVisibility: (categoryId: string, isPublic: boolean) =>
+    updateCategoryVisibilityAction({ categoryId, isPublic }),
 
   deleteCategory: (categoryId: string) => deleteCategoryAction({ categoryId }),
 

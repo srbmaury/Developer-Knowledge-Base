@@ -30,7 +30,10 @@ export type Question = {
 
 export type Category = {
   id: string;
+  userId: string;
   name: string;
+  isPublic: boolean;
+  canEdit: boolean;
   parentId: string | null;
   order: number;
   createdAt: string;

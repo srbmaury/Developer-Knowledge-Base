@@ -18,6 +18,7 @@ model Category {
   id        String     @id @default(cuid())
   userId    String
   name      String
+  isPublic  Boolean    @default(false)
   parentId  String?
   parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
   children  Category[] @relation("CategoryTree")
@@ -28,6 +29,7 @@ model Category {
 
   @@index([parentId])
   @@index([userId])
+  @@index([isPublic])
 }
 
 model Question {

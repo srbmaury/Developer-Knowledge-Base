@@ -8,16 +8,22 @@ import { QuestionList } from "@/components/question-list";
 import { Sidebar } from "@/components/sidebar";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useWorkspaceStore } from "@/store/workspace-store";
+import { getCategoryById, useWorkspaceStore } from "@/store/workspace-store";
 import type { Category } from "@/types/knowledge";
 import { ListCollapse, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Search } from "lucide-react";
 
 export function KnowledgeBaseApp({
   initialCategories,
-  userEmail
+  userEmail,
+  workspaceTitle = "Developer Knowledge Base",
+  workspaceSubtitle = "Your private workspace",
+  canCreateRootCategory = true
 }: {
   initialCategories: Category[];
   userEmail: string | null;
+  workspaceTitle?: string;
+  workspaceSubtitle?: string;
+  canCreateRootCategory?: boolean;
 }) {
   const { categories, setInitialData, setCommandOpen, selectedCategoryId, addQuestion } = useWorkspaceStore();
   const [categoriesOpen, setCategoriesOpen] = useState(true);
@@ -31,14 +37,24 @@ export function KnowledgeBaseApp({
   useHotkeys("meta+k", () => setCommandOpen(true));
 
   const selectedCategoryName = useMemo(
-    () => categories.find((category) => category.id === selectedCategoryId)?.name ?? "All Notes",
+    () => getCategoryById(categories, selectedCategoryId)?.name ?? "All Notes",
     [categories, selectedCategoryId]
   );
+  const selectedCategory = getCategoryById(categories, selectedCategoryId);
+  const canEditSelectedCategory = selectedCategory?.canEdit ?? false;
 
   return (
     <TooltipProvider>
       <main className="flex h-screen overflow-hidden bg-background/85 text-foreground">
-        {categoriesOpen ? <Sidebar userEmail={userEmail} onCollapse={() => setCategoriesOpen(false)} /> : null}
+        {categoriesOpen ? (
+          <Sidebar
+            userEmail={userEmail}
+            workspaceTitle={workspaceTitle}
+            workspaceSubtitle={workspaceSubtitle}
+            canCreateRootCategory={canCreateRootCategory}
+            onCollapse={() => setCategoriesOpen(false)}
+          />
+        ) : null}
         {questionsOpen ? (
           <section className="hidden h-full w-80 shrink-0 overflow-hidden border-r bg-background/70 lg:flex lg:flex-col">
             <QuestionList onCollapse={() => setQuestionsOpen(false)} />
@@ -75,14 +91,16 @@ export function KnowledgeBaseApp({
               <span className="truncate">Search questions, snippets, categories...</span>
               <kbd className="ml-auto hidden rounded border bg-muted px-1.5 py-0.5 text-[10px] sm:inline">Ctrl K</kbd>
             </button>
-            <Button
-              variant="secondary"
-              className="hidden sm:inline-flex"
-              onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
-            >
-              <Plus className="h-4 w-4" />
-              Quick add
-            </Button>
+            {canEditSelectedCategory ? (
+              <Button
+                variant="secondary"
+                className="hidden sm:inline-flex"
+                onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
+              >
+                <Plus className="h-4 w-4" />
+                Quick add
+              </Button>
+            ) : null}
           </header>
           <div className="grid min-h-0 shrink-0 grid-cols-1 lg:hidden">
             <div className="max-h-72 overflow-hidden border-b bg-background/70 p-3">
@@ -95,14 +113,16 @@ export function KnowledgeBaseApp({
           </div>
         </section>
         <CommandPalette />
-        <Button
-          className="fixed bottom-5 right-5 z-40 h-12 w-12 rounded-full shadow-soft sm:hidden"
-          size="icon"
-          onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
-          aria-label="Quick add question"
-        >
-          <Plus className="h-5 w-5" />
-        </Button>
+        {canEditSelectedCategory ? (
+          <Button
+            className="fixed bottom-5 right-5 z-40 h-12 w-12 rounded-full shadow-soft sm:hidden"
+            size="icon"
+            onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
+            aria-label="Quick add question"
+          >
+            <Plus className="h-5 w-5" />
+          </Button>
+        ) : null}
       </main>
     </TooltipProvider>
   );

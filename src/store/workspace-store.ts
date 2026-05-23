@@ -12,6 +12,7 @@ type WorkspaceState = {
   selectedQuestionId: string | null;
   selectedSolutionId: string | null;
   expandedCategoryIds: string[];
+  isRecentActivityOpen: boolean;
   query: string;
   commandOpen: boolean;
   setInitialData: (categories: Category[]) => void;
@@ -19,10 +20,12 @@ type WorkspaceState = {
   selectQuestion: (questionId: string) => void;
   selectSolution: (solutionId: string) => void;
   toggleCategory: (categoryId: string) => void;
+  toggleRecentActivity: () => void;
   setQuery: (query: string) => void;
   setCommandOpen: (open: boolean) => void;
   addCategory: (name: string, parentId?: string | null) => Promise<void>;
   updateCategoryName: (categoryId: string, name: string) => void;
+  updateCategoryVisibility: (categoryId: string, isPublic: boolean) => void;
   deleteCategory: (categoryId: string) => void;
   addQuestion: (categoryId: string, title: string) => Promise<void>;
   updateQuestionTitle: (questionId: string, title: string) => void;
@@ -69,6 +72,38 @@ function findCategory(categories: Category[], categoryId: string): Category | nu
     if (nested) return nested;
   }
   return null;
+}
+
+function findCategoryForQuestion(categories: Category[], questionId: string): Category | null {
+  for (const category of categories) {
+    if (category.questions.some((question) => question.id === questionId)) return category;
+    const nested = findCategoryForQuestion(category.children, questionId);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function findCategoryForSolution(categories: Category[], solutionId: string): Category | null {
+  for (const category of categories) {
+    if (category.questions.some((question) => question.solutions.some((solution) => solution.id === solutionId))) {
+      return category;
+    }
+    const nested = findCategoryForSolution(category.children, solutionId);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function canEditCategory(categories: Category[], categoryId: string | null | undefined) {
+  return Boolean(categoryId && findCategory(categories, categoryId)?.canEdit);
+}
+
+function canEditQuestion(categories: Category[], questionId: string | null | undefined) {
+  return Boolean(questionId && findCategoryForQuestion(categories, questionId)?.canEdit);
+}
+
+function canEditSolution(categories: Category[], solutionId: string | null | undefined) {
+  return Boolean(solutionId && findCategoryForSolution(categories, solutionId)?.canEdit);
 }
 
 function collectCategoryIds(category: Category): string[] {
@@ -180,6 +215,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       selectedQuestionId: null,
       selectedSolutionId: null,
       expandedCategoryIds: [],
+      isRecentActivityOpen: true,
       query: "",
       commandOpen: false,
       setInitialData: (categories) => {
@@ -223,10 +259,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ? state.expandedCategoryIds.filter((id) => id !== categoryId)
             : [...state.expandedCategoryIds, categoryId]
         })),
+      toggleRecentActivity: () =>
+        set((state) => ({
+          isRecentActivityOpen: !state.isRecentActivityOpen
+        })),
       setQuery: (query) => set({ query }),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
       addCategory: async (name, parentId = null) => {
         const { categories } = get();
+        if (parentId && !canEditCategory(categories, parentId)) return;
         const siblingCount = parentId
           ? (findCategory(categories, parentId)?.children.length ?? 0)
           : categories.length;
@@ -239,7 +280,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
         const category: Category = {
           id: result.id,
+          userId: "",
           name,
+          isPublic: false,
+          canEdit: true,
           parentId,
           order: siblingCount,
           createdAt: new Date().toISOString(),
@@ -260,6 +304,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
       },
       updateCategoryName: (categoryId, name) => {
+        if (!canEditCategory(get().categories, categoryId)) return;
         set((state) => ({
           categories: mapCategories(state.categories, (category) =>
             category.id === categoryId ? { ...category, name } : category
@@ -267,9 +312,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
         void workspaceSync.updateCategory(categoryId, name);
       },
+      updateCategoryVisibility: (categoryId, isPublic) => {
+        if (!canEditCategory(get().categories, categoryId)) return;
+        set((state) => ({
+          categories: mapCategories(state.categories, (category) =>
+            category.id === categoryId ? { ...category, isPublic } : category
+          )
+        }));
+        void workspaceSync.updateCategoryVisibility(categoryId, isPublic);
+      },
       deleteCategory: (categoryId) => {
         const target = findCategory(get().categories, categoryId);
-        if (!target) return;
+        if (!target || !target.canEdit) return;
 
         const deletedCategoryIds = new Set(collectCategoryIds(target));
         void workspaceSync.deleteCategory(categoryId);
@@ -305,6 +359,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
       addQuestion: async (categoryId, title) => {
         const { categories } = get();
+        if (!canEditCategory(categories, categoryId)) return;
         const order = findCategory(categories, categoryId)?.questions.length ?? 0;
 
         const result = await workspaceSync.createQuestion(categoryId, title, order);
@@ -349,6 +404,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
       },
       updateQuestionTitle: (questionId, title) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
         set((state) => ({
           categories: updateQuestionInTree(state.categories, questionId, (question) => ({
             ...question,
@@ -359,6 +415,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         void workspaceSync.updateQuestion(questionId, { title });
       },
       updateQuestionDescription: (questionId, description) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
         set((state) => ({
           categories: updateQuestionInTree(state.categories, questionId, (question) => ({
             ...question,
@@ -369,6 +426,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         void workspaceSync.updateQuestion(questionId, { description });
       },
       updateQuestionDifficulty: (questionId, difficulty) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
         set((state) => ({
           categories: updateQuestionInTree(state.categories, questionId, (question) => ({
             ...question,
@@ -379,12 +437,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         void workspaceSync.updateDifficulty(questionId, difficulty);
       },
       reorderQuestions: (categoryId, questionIds) => {
+        if (!canEditCategory(get().categories, categoryId)) return;
         set((state) => ({
           categories: reorderQuestionsInCategory(state.categories, categoryId, questionIds)
         }));
         void workspaceSync.reorderQuestions(categoryId, questionIds);
       },
       deleteQuestion: (questionId) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
         void workspaceSync.deleteQuestion(questionId);
 
         set((state) => {
@@ -402,6 +462,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         });
       },
       addSolution: async (questionId, title) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
         const question = flattenQuestions(get().categories).find((item) => item.id === questionId);
         const order = question?.solutions.length ?? 0;
 
@@ -432,6 +493,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
       },
       deleteSolution: async (solutionId) => {
+        if (!canEditSolution(get().categories, solutionId)) return;
         const question = flattenQuestions(get().categories).find((item) =>
           item.solutions.some((solution) => solution.id === solutionId)
         );
@@ -469,24 +531,28 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         toast.success("Approach deleted");
       },
       updateSolutionTitle: (solutionId, title) => {
+        if (!canEditSolution(get().categories, solutionId)) return;
         set((state) => ({
           categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, title }))
         }));
         void workspaceSync.updateSolution(solutionId, { title });
       },
       updateSolutionLanguage: (solutionId, language) => {
+        if (!canEditSolution(get().categories, solutionId)) return;
         set((state) => ({
           categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, language }))
         }));
         void workspaceSync.updateSolution(solutionId, { language });
       },
       updateSolutionContent: (solutionId, content) => {
+        if (!canEditSolution(get().categories, solutionId)) return;
         set((state) => ({
           categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, content }))
         }));
         scheduleSolutionSave(solutionId, content);
       },
       toggleFavorite: (questionId) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
         const question = flattenQuestions(get().categories).find((item) => item.id === questionId);
         if (!question) return;
 
@@ -501,6 +567,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         void workspaceSync.updateQuestion(questionId, { isFavorite });
       },
       toggleImportant: (questionId) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
         const question = flattenQuestions(get().categories).find((item) => item.id === questionId);
         if (!question) return;
 
@@ -537,7 +604,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         selectedCategoryId: state.selectedCategoryId,
         selectedQuestionId: state.selectedQuestionId,
         selectedSolutionId: state.selectedSolutionId,
-        expandedCategoryIds: state.expandedCategoryIds
+        expandedCategoryIds: state.expandedCategoryIds,
+        isRecentActivityOpen: state.isRecentActivityOpen
       })
     }
   )
@@ -549,4 +617,12 @@ export function getAllQuestions(categories: Category[]) {
 
 export function sortQuestionsForDisplay(questions: Question[]) {
   return sortQuestions(questions);
+}
+
+export function getCategoryForQuestion(categories: Category[], questionId: string | null | undefined) {
+  return questionId ? findCategoryForQuestion(categories, questionId) : null;
+}
+
+export function getCategoryById(categories: Category[], categoryId: string | null | undefined) {
+  return categoryId ? findCategory(categories, categoryId) : null;
 }

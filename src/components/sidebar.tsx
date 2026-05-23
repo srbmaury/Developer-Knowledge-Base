@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronRight, Folder, FolderOpen, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useMemo } from "react";
+import { ChevronRight, Folder, FolderOpen, Globe2, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { buildRecentActivity, resolveQuestionIdFromActivity } from "@/lib/recent-activity";
 import { formatRelativeDate, cn } from "@/lib/utils";
@@ -11,11 +12,25 @@ import { UserMenu } from "@/components/user-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export function Sidebar({ userEmail, onCollapse }: { userEmail: string | null; onCollapse: () => void }) {
-  const { categories, addCategory, selectQuestion } = useWorkspaceStore();
+export function Sidebar({
+  userEmail,
+  workspaceTitle,
+  workspaceSubtitle,
+  canCreateRootCategory,
+  onCollapse
+}: {
+  userEmail: string | null;
+  workspaceTitle: string;
+  workspaceSubtitle: string;
+  canCreateRootCategory: boolean;
+  onCollapse: () => void;
+}) {
+  const { categories, addCategory, selectQuestion, isRecentActivityOpen, toggleRecentActivity } = useWorkspaceStore();
   const { theme, setTheme } = useTheme();
+  const router = useRouter();
+  const pathname = usePathname();
+  const isPublicWorkspace = pathname === "/public";
   const recentActivity = useMemo(() => buildRecentActivity(categories), [categories]);
-  const [isRecentActivityOpen, setIsRecentActivityOpen] = useState(true);
 
   return (
     <aside className="hidden h-full w-72 shrink-0 flex-col overflow-hidden border-r bg-card/80 backdrop-blur-xl md:flex">
@@ -24,11 +39,34 @@ export function Sidebar({ userEmail, onCollapse }: { userEmail: string | null; o
           <span className="text-sm font-bold">DK</span>
         </div>
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">Developer Knowledge Base</p>
-          <p className="text-xs text-muted-foreground">Your private workspace</p>
+          <p className="truncate text-sm font-semibold">{workspaceTitle}</p>
+          <p className="text-xs text-muted-foreground">{workspaceSubtitle}</p>
         </div>
         <Button className="ml-auto h-8 w-8" size="icon" variant="ghost" onClick={onCollapse} aria-label="Collapse categories sidebar">
           <PanelLeftClose className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-1 border-b p-3">
+        <Button
+          type="button"
+          variant={!isPublicWorkspace ? "secondary" : "ghost"}
+          size="sm"
+          className="justify-start"
+          onClick={() => router.push("/")}
+        >
+          <Lock className="h-4 w-4" />
+          Private
+        </Button>
+        <Button
+          type="button"
+          variant={isPublicWorkspace ? "secondary" : "ghost"}
+          size="sm"
+          className="justify-start"
+          onClick={() => router.push("/public")}
+        >
+          <Globe2 className="h-4 w-4" />
+          Public
         </Button>
       </div>
 
@@ -36,9 +74,11 @@ export function Sidebar({ userEmail, onCollapse }: { userEmail: string | null; o
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-3 flex items-center justify-between px-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Categories</p>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => void addCategory("New Category")}>
-              <Plus className="h-4 w-4" />
-            </Button>
+            {canCreateRootCategory ? (
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => void addCategory("New Category")}>
+                <Plus className="h-4 w-4" />
+              </Button>
+            ) : null}
           </div>
           <nav className="space-y-1">
             {categories.map((category) => (
@@ -50,7 +90,7 @@ export function Sidebar({ userEmail, onCollapse }: { userEmail: string | null; o
         <div className="shrink-0 border-t px-3 py-3">
         <button
           type="button"
-          onClick={() => setIsRecentActivityOpen((prev) => !prev)}
+          onClick={toggleRecentActivity}
           className="mb-2 flex w-full items-center justify-between px-1 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
         >
           <span>Recent activity</span>
@@ -129,6 +169,7 @@ function CategoryNode({ category, depth }: { category: Category; depth: number }
     toggleCategory,
     addCategory,
     updateCategoryName,
+    updateCategoryVisibility,
     deleteCategory
   } = useWorkspaceStore();
   const expanded = expandedCategoryIds.includes(category.id);
@@ -171,43 +212,69 @@ function CategoryNode({ category, depth }: { category: Category; depth: number }
             style={{ paddingLeft: `${depth * 10 + 8}px` }}
           >
             {expanded ? <FolderOpen className="h-4 w-4 shrink-0 text-accent" /> : <Folder className="h-4 w-4 shrink-0" />}
-            <Input
-              value={category.name}
-              onChange={(event) => updateCategoryName(category.id, event.target.value)}
-              onFocus={() => selectCategory(category.id)}
-              onClick={(event) => {
-                event.stopPropagation();
-                selectCategory(category.id);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") event.currentTarget.blur();
-              }}
-              className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
-              aria-label={`Rename ${category.name}`}
-              placeholder="Untitled category"
-            />
+            {category.canEdit ? (
+              <Input
+                value={category.name}
+                onChange={(event) => updateCategoryName(category.id, event.target.value)}
+                onFocus={() => selectCategory(category.id)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  selectCategory(category.id);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+                className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+                aria-label={`Rename ${category.name}`}
+                placeholder="Untitled category"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => selectCategory(category.id)}
+                className="h-7 min-w-0 flex-1 truncate text-left text-sm"
+              >
+                {category.name || "Untitled category"}
+              </button>
+            )}
             <span className="ml-auto text-xs text-muted-foreground">{category.questions.length}</span>
           </div>
-          <Button
-            className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
-            size="icon"
-            variant="ghost"
-            onClick={() => void addCategory("New Sub-category", category.id)}
-            aria-label={`Add sub-category to ${category.name}`}
-            title="Add sub-category"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            className="mr-1 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
-            size="icon"
-            variant="ghost"
-            onClick={handleDelete}
-            aria-label={`Delete ${category.name}`}
-            title="Delete category"
-          >
-            <Trash2 className="h-3.5 w-3.5 text-destructive" />
-          </Button>
+          <div className="hidden shrink-0 items-center group-hover:flex">
+          {category.canEdit ? (
+            <>
+              <Button
+                className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+                size="icon"
+                variant="ghost"
+                onClick={() => updateCategoryVisibility(category.id, !category.isPublic)}
+                aria-label={category.isPublic ? `Make ${category.name} private` : `Make ${category.name} public`}
+                title={category.isPublic ? "Make private" : "Make public"}
+              >
+                {category.isPublic ? <Globe2 className="h-3.5 w-3.5 text-accent" /> : <Lock className="h-3.5 w-3.5" />}
+              </Button>
+              <Button
+                className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+                size="icon"
+                variant="ghost"
+                onClick={() => void addCategory("New Sub-category", category.id)}
+                aria-label={`Add sub-category to ${category.name}`}
+                title="Add sub-category"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                className="mr-1 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+                size="icon"
+                variant="ghost"
+                onClick={handleDelete}
+                aria-label={`Delete ${category.name}`}
+                title="Delete category"
+              >
+                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+              </Button>
+            </>
+          ) : null}
+          </div>
         </div>
       </div>
       {expanded && category.children.length > 0 ? (

@@ -14,6 +14,11 @@ async function unauthorized() {
   return { ok: false as const, message: "You must be signed in." };
 }
 
+function revalidateWorkspacePaths() {
+  revalidatePath("/");
+  revalidatePath("/public");
+}
+
 export async function createCategoryAction(input: { name: string; parentId?: string | null; order?: number }) {
   let userId: string;
   try {
@@ -46,7 +51,7 @@ export async function createCategoryAction(input: { name: string; parentId?: str
     }
   });
 
-  revalidatePath("/");
+  revalidateWorkspacePaths();
   return { ok: true as const, id: category.id };
 }
 
@@ -68,7 +73,29 @@ export async function updateCategoryAction(input: { categoryId: string; name: st
     data: { name: input.name.trim() }
   });
 
-  revalidatePath("/");
+  revalidateWorkspacePaths();
+  return { ok: true as const };
+}
+
+export async function updateCategoryVisibilityAction(input: { categoryId: string; isPublic: boolean }) {
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const category = await getOwnedCategory(input.categoryId, userId);
+  if (!category) {
+    return { ok: false as const, message: "Category not found." };
+  }
+
+  await prisma.category.update({
+    where: { id: input.categoryId },
+    data: { isPublic: input.isPublic }
+  });
+
+  revalidateWorkspacePaths();
   return { ok: true as const };
 }
 
@@ -86,7 +113,7 @@ export async function deleteCategoryAction(input: { categoryId: string }) {
   }
 
   await prisma.category.delete({ where: { id: input.categoryId } });
-  revalidatePath("/");
+  revalidateWorkspacePaths();
   return { ok: true as const };
 }
 
@@ -133,7 +160,7 @@ export async function createQuestionAction(input: {
     include: { solutions: true }
   });
 
-  revalidatePath("/");
+  revalidateWorkspacePaths();
   return {
     ok: true as const,
     question: {
@@ -185,7 +212,7 @@ export async function updateQuestionAction(input: {
     }
   });
 
-  revalidatePath("/");
+  revalidateWorkspacePaths();
   return { ok: true as const };
 }
 
@@ -203,7 +230,7 @@ export async function deleteQuestionAction(input: { questionId: string }) {
   }
 
   await prisma.question.delete({ where: { id: input.questionId } });
-  revalidatePath("/");
+  revalidateWorkspacePaths();
   return { ok: true as const };
 }
 
@@ -236,7 +263,7 @@ export async function reorderQuestionsAction(input: { categoryId: string; questi
     )
   );
 
-  revalidatePath("/");
+  revalidateWorkspacePaths();
   return { ok: true as const };
 }
 
@@ -265,7 +292,7 @@ export async function createSolutionAction(input: { questionId: string; title: s
     }
   });
 
-  revalidatePath("/");
+  revalidateWorkspacePaths();
   return { ok: true as const, id: solution.id };
 }
 
@@ -304,7 +331,7 @@ export async function updateSolutionAction(input: {
     data: { updatedAt: new Date() }
   });
 
-  revalidatePath("/");
+  revalidateWorkspacePaths();
   return { ok: true as const };
 }
 
@@ -333,6 +360,6 @@ export async function deleteSolutionAction(input: { solutionId: string }) {
     data: { updatedAt: new Date() }
   });
 
-  revalidatePath("/");
+  revalidateWorkspacePaths();
   return { ok: true as const };
 }
