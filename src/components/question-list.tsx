@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, PanelRightClose, Pin, Plus, Star, Trash2 } from "lucide-react";
+import { GripVertical, Loader2, PanelRightClose, Pin, Plus, Star, Trash2 } from "lucide-react";
 import { DIFFICULTIES, difficultyBadgeClass } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -135,7 +135,8 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
     selectQuestion,
     addQuestion,
     deleteQuestion,
-    reorderQuestions
+    reorderQuestions,
+    creatingQuestionCategoryIds
   } = useWorkspaceStore();
 
   const questions = sortQuestionsForDisplay(
@@ -145,6 +146,9 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
   const unpinnedQuestions = questions.filter((question) => !question.isPinned);
   const selectedCategory = getCategoryById(categories, selectedCategoryId);
   const canEditSelectedCategory = selectedCategory?.canEdit ?? false;
+  const isCreatingQuestion = Boolean(
+    selectedCategoryId && creatingQuestionCategoryIds.includes(selectedCategoryId)
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -208,10 +212,11 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
             <Button
               size="icon"
               variant="ghost"
+              disabled={isCreatingQuestion}
               onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
               aria-label="Add question"
             >
-              <Plus className="h-4 w-4" />
+              {isCreatingQuestion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             </Button>
           ) : null}
           {onCollapse ? (
@@ -234,9 +239,14 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
               {canEditSelectedCategory ? "Create one to start collecting snippets and approaches." : "No public questions here yet."}
             </p>
             {canEditSelectedCategory ? (
-              <Button className="mt-4" size="sm" onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}>
-                <Plus className="h-4 w-4" />
-                Add question
+              <Button
+                className="mt-4"
+                size="sm"
+                disabled={isCreatingQuestion}
+                onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
+              >
+                {isCreatingQuestion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                {isCreatingQuestion ? "Adding" : "Add question"}
               </Button>
             ) : null}
           </div>

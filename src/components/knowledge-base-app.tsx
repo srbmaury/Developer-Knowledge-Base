@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getCategoryById, useWorkspaceStore } from "@/store/workspace-store";
 import type { Category } from "@/types/knowledge";
-import { ListCollapse, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Search } from "lucide-react";
+import { ListCollapse, Loader2, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Search } from "lucide-react";
 
 export function KnowledgeBaseApp({
   initialCategories,
@@ -25,7 +25,14 @@ export function KnowledgeBaseApp({
   workspaceSubtitle?: string;
   canCreateRootCategory?: boolean;
 }) {
-  const { categories, setInitialData, setCommandOpen, selectedCategoryId, addQuestion } = useWorkspaceStore();
+  const {
+    categories,
+    setInitialData,
+    setCommandOpen,
+    selectedCategoryId,
+    addQuestion,
+    creatingQuestionCategoryIds
+  } = useWorkspaceStore();
   const [categoriesOpen, setCategoriesOpen] = useState(true);
   const [questionsOpen, setQuestionsOpen] = useState(true);
 
@@ -42,6 +49,9 @@ export function KnowledgeBaseApp({
   );
   const selectedCategory = getCategoryById(categories, selectedCategoryId);
   const canEditSelectedCategory = selectedCategory?.canEdit ?? false;
+  const isCreatingQuestion = Boolean(
+    selectedCategoryId && creatingQuestionCategoryIds.includes(selectedCategoryId)
+  );
 
   return (
     <TooltipProvider>
@@ -95,10 +105,11 @@ export function KnowledgeBaseApp({
               <Button
                 variant="secondary"
                 className="hidden sm:inline-flex"
+                disabled={isCreatingQuestion}
                 onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
               >
-                <Plus className="h-4 w-4" />
-                Quick add
+                {isCreatingQuestion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                {isCreatingQuestion ? "Adding" : "Quick add"}
               </Button>
             ) : null}
           </header>
@@ -117,10 +128,11 @@ export function KnowledgeBaseApp({
           <Button
             className="fixed bottom-5 right-5 z-40 h-12 w-12 rounded-full shadow-soft sm:hidden"
             size="icon"
+            disabled={isCreatingQuestion}
             onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
             aria-label="Quick add question"
           >
-            <Plus className="h-5 w-5" />
+            {isCreatingQuestion ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
           </Button>
         ) : null}
       </main>

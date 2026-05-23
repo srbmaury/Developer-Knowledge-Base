@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bot, Copy, FileCode2, Pin, Plus, Save, Star, Trash2 } from "lucide-react";
+import { Bot, Copy, FileCode2, Loader2, Pin, Plus, Save, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { DIFFICULTIES, LANGUAGES } from "@/lib/constants";
 import { workspaceSync } from "@/lib/workspace-sync";
@@ -38,13 +38,15 @@ export function EditorPane() {
     updateSolutionLanguage,
     updateSolutionContent,
     toggleFavorite,
-    toggleImportant
+    toggleImportant,
+    creatingSolutionQuestionIds
   } = useWorkspaceStore();
   const question = getAllQuestions(categories).find((item) => item.id === selectedQuestionId);
   const solution = question?.solutions.find((item) => item.id === selectedSolutionId) ?? question?.solutions[0];
   const selectedCategory = getCategoryForQuestion(categories, question?.id);
   const canEdit = selectedCategory?.canEdit ?? false;
   const questionDescription = question?.description;
+  const isCreatingSolution = Boolean(question && creatingSolutionQuestionIds.includes(question.id));
 
   const titleRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -232,15 +234,16 @@ export function EditorPane() {
               </select>
               {canEdit ? (
                 <>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  void addSolution(question.id, "Untitled approach");
-                }}
-              >
-                <Plus className="h-4 w-4" />
-                Solution
-              </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={isCreatingSolution}
+                    onClick={() => {
+                      void addSolution(question.id, "Untitled approach");
+                    }}
+                  >
+                    {isCreatingSolution ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    {isCreatingSolution ? "Adding" : "Solution"}
+                  </Button>
               <Button variant="outline" onClick={generateAnswer} disabled={isGenerating}>
                 <Bot className="h-4 w-4" />
                 {isGenerating ? "Generating…" : "AI answer"}

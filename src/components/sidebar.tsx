@@ -1,8 +1,8 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useMemo } from "react";
-import { ChevronRight, Folder, FolderOpen, Globe2, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useTransition } from "react";
+import { ChevronRight, Folder, FolderOpen, Globe2, Loader2, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { buildRecentActivity, resolveQuestionIdFromActivity } from "@/lib/recent-activity";
 import { formatRelativeDate, cn } from "@/lib/utils";
@@ -25,12 +25,33 @@ export function Sidebar({
   canCreateRootCategory: boolean;
   onCollapse: () => void;
 }) {
-  const { categories, addCategory, selectQuestion, isRecentActivityOpen, toggleRecentActivity } = useWorkspaceStore();
+  const {
+    categories,
+    addCategory,
+    selectQuestion,
+    isRecentActivityOpen,
+    toggleRecentActivity,
+    creatingCategoryKeys
+  } = useWorkspaceStore();
   const { theme, setTheme } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
   const isPublicWorkspace = pathname === "/public";
+  const [isNavigating, startNavigation] = useTransition();
+  const isCreatingRootCategory = creatingCategoryKeys.includes("__root__");
   const recentActivity = useMemo(() => buildRecentActivity(categories), [categories]);
+
+  useEffect(() => {
+    router.prefetch("/");
+    router.prefetch("/public");
+  }, [router]);
+
+  function navigateTo(path: "/" | "/public") {
+    if (pathname === path) return;
+    startNavigation(() => {
+      router.push(path);
+    });
+  }
 
   return (
     <aside className="hidden h-full w-72 shrink-0 flex-col overflow-hidden border-r bg-card/80 backdrop-blur-xl md:flex">
@@ -53,9 +74,10 @@ export function Sidebar({
           variant={!isPublicWorkspace ? "secondary" : "ghost"}
           size="sm"
           className="justify-start"
-          onClick={() => router.push("/")}
+          disabled={isNavigating}
+          onClick={() => navigateTo("/")}
         >
-          <Lock className="h-4 w-4" />
+          {isNavigating && isPublicWorkspace ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
           Private
         </Button>
         <Button
@@ -63,9 +85,10 @@ export function Sidebar({
           variant={isPublicWorkspace ? "secondary" : "ghost"}
           size="sm"
           className="justify-start"
-          onClick={() => router.push("/public")}
+          disabled={isNavigating}
+          onClick={() => navigateTo("/public")}
         >
-          <Globe2 className="h-4 w-4" />
+          {isNavigating && !isPublicWorkspace ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe2 className="h-4 w-4" />}
           Public
         </Button>
       </div>
@@ -75,8 +98,14 @@ export function Sidebar({
           <div className="mb-3 flex items-center justify-between px-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Categories</p>
             {canCreateRootCategory ? (
-              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => void addCategory("New Category")}>
-                <Plus className="h-4 w-4" />
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                disabled={isCreatingRootCategory}
+                onClick={() => void addCategory("New Category")}
+              >
+                {isCreatingRootCategory ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               </Button>
             ) : null}
           </div>
@@ -170,11 +199,13 @@ function CategoryNode({ category, depth }: { category: Category; depth: number }
     addCategory,
     updateCategoryName,
     updateCategoryVisibility,
-    deleteCategory
+    deleteCategory,
+    creatingCategoryKeys
   } = useWorkspaceStore();
   const expanded = expandedCategoryIds.includes(category.id);
   const active = selectedCategoryId === category.id;
   const questionCount = countSubtreeQuestions(category);
+  const isCreatingChildCategory = creatingCategoryKeys.includes(category.id);
 
   function handleDelete() {
     const parts = [`Delete "${category.name}"?`];
@@ -256,11 +287,12 @@ function CategoryNode({ category, depth }: { category: Category; depth: number }
                 className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
                 size="icon"
                 variant="ghost"
+                disabled={isCreatingChildCategory}
                 onClick={() => void addCategory("New Sub-category", category.id)}
                 aria-label={`Add sub-category to ${category.name}`}
                 title="Add sub-category"
               >
-                <Plus className="h-3.5 w-3.5" />
+                {isCreatingChildCategory ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
               </Button>
               <Button
                 className="mr-1 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
