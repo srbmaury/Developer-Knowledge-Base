@@ -19,7 +19,7 @@ export function normalizeGeneratedMarkdown(raw: string) {
   text = text.trim();
 
   // Ensure newline after opening code fence when model omits it (e.g. ```typescript// comment)
-  text = text.replace(/```([a-zA-Z0-9+#-]*)([^\n\r`])/g, "```$1\n$2");
+  text = text.replace(/```([a-zA-Z0-9+#-]+)[ \t]+([^\n\r`])/g, "```$1\n$2",);
 
   // Split jammed comment lines: "// foo// bar" -> two lines
   text = text.replace(/(\/\/[^\n]*?)(\/\/)/g, "$1\n$2");
