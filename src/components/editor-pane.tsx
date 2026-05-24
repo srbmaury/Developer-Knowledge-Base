@@ -143,40 +143,29 @@ export function EditorPane() {
     <article>
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8">
         <div className="flex flex-col gap-4 border-b pb-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
+        <div className="flex flex-col gap-3">
+          {/* Top Row */}
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
               <Input
                 ref={titleRef}
                 value={question.title}
                 onChange={(event) => updateQuestionTitle(question.id, event.target.value)}
                 readOnly={!canEdit}
-                className="h-12 truncate border-0 bg-transparent px-0 py-0 text-2xl font-semibold tracking-normal shadow-none focus-visible:ring-0 sm:text-4xl"
+                className="h-12 w-full border-0 bg-transparent px-0 py-0 text-2xl font-semibold tracking-normal shadow-none focus-visible:ring-0 sm:text-4xl"
                 aria-label="Question title"
                 placeholder="Enter a title"
               />
-
-              <Textarea
-                ref={descriptionRef}
-                value={question.description}
-                onChange={(event) => updateQuestionDescription(question.id, event.target.value)}
-                readOnly={!canEdit}
-                rows={1}
-                className="mt-3 max-w-2xl resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none focus-visible:ring-0 min-h-0 max-h-[4.5rem]"
-                style={{ height: "auto" }}
-                onInput={(e) => {
-                  const target = e.currentTarget;
-                  target.style.height = "auto";
-                  target.style.height = `${Math.min(target.scrollHeight, 72)}px`;
-                }}
-                aria-label="Question description"
-                placeholder="Add a short description"
-              />
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <SaveStatusIndicator status={saveStatus} />
+
               <select
                 value={question.difficulty}
-                onChange={(event) => updateQuestionDifficulty(question.id, event.target.value as Difficulty)}
+                onChange={(event) =>
+                  updateQuestionDifficulty(question.id, event.target.value as Difficulty)
+                }
                 disabled={!canEdit}
                 className="h-9 rounded-md border bg-background px-3 text-sm shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label="Question difficulty"
@@ -187,28 +176,61 @@ export function EditorPane() {
                   </option>
                 ))}
               </select>
+
               {canEdit ? (
                 <>
-                  <Button variant="outline" size="icon" onClick={() => toggleImportant(question.id)} aria-label="Mark important">
-                    <Pin className={cn("h-4 w-4", question.isPinned && "fill-accent text-accent")} />
-                  </Button>
-                  <Button variant="outline" size="icon" onClick={() => toggleFavorite(question.id)} aria-label="Toggle favorite">
-                    <Star className={cn("h-4 w-4", question.isFavorite && "fill-amber-400 text-amber-400")} />
-                  </Button>
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => {
-                      if (window.confirm(`Delete "${question.title}"?`)) deleteQuestion(question.id);
-                    }}
-                    aria-label="Delete question"
+                    onClick={() => toggleImportant(question.id)}
+                    aria-label="Mark important"
                   >
-                    <Trash2 className="h-4 w-4 text-destructive" />
+                    <Pin
+                      className={cn(
+                        "h-4 w-4",
+                        question.isPinned && "fill-accent text-accent"
+                      )}
+                    />
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => toggleFavorite(question.id)}
+                    aria-label="Toggle favorite"
+                  >
+                    <Star
+                      className={cn(
+                        "h-4 w-4",
+                        question.isFavorite && "fill-amber-400 text-amber-400"
+                      )}
+                    />
                   </Button>
                 </>
               ) : null}
             </div>
           </div>
+
+          {/* Description Row */}
+          <Textarea
+            ref={descriptionRef}
+            value={question.description}
+            onChange={(event) =>
+              updateQuestionDescription(question.id, event.target.value)
+            }
+            readOnly={!canEdit}
+            rows={1}
+            className="w-full resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none focus-visible:ring-0 min-h-0 max-h-[4.5rem]"
+            style={{ height: "auto" }}
+            onInput={(e) => {
+              const target = e.currentTarget;
+              target.style.height = "auto";
+              target.style.height = `${Math.min(target.scrollHeight, 72)}px`;
+            }}
+            aria-label="Question description"
+            placeholder="Add a short description"
+          />
+        </div>
         </div>
 
         <Tabs value={solution.id} onValueChange={selectSolution} className="mt-5">
