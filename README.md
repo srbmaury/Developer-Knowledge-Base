@@ -14,6 +14,16 @@ A developer-focused personal knowledge base built with Next.js 15, TypeScript, T
 - **Per-user workspaces** with Supabase email/password sign-in
 - AI answer generation (structured markdown + suggested difficulty via OpenAI)
 
+## App pages
+
+This app exposes 4 top-level views (besides `/login`):
+
+- `/` (workspace home)
+- `/most-viewed` (most viewed notes)
+- `/starred` (user favorites)
+- `/public` (public/shared notes)
+
+
 ## Prerequisites
 
 - Node.js 20+

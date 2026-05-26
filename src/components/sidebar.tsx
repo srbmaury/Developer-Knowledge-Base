@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useTransition } from "react";
 import { ChevronRight, Folder, FolderOpen, Globe2, Loader2, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -36,22 +36,58 @@ export function Sidebar({
   const { theme, setTheme } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
-  const isPublicWorkspace = pathname === "/public";
+  const searchParams = useSearchParams();
+
   const [isNavigating, startNavigation] = useTransition();
   const isCreatingRootCategory = creatingCategoryKeys.includes("__root__");
   const recentActivity = useMemo(() => buildRecentActivity(categories), [categories]);
+
+  // URL -> selected question
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (!q) return;
+
+    // flatten via recursive scan
+    const exists = (() => {
+      const stack = [...categories];
+      while (stack.length) {
+        const c = stack.pop()!;
+        for (const qq of c.questions) if (qq.id === q) return true;
+        stack.push(...c.children);
+      }
+      return false;
+    })();
+
+    if (exists) selectQuestion(q);
+  }, [categories, searchParams, selectQuestion]);
+
+  const { selectedQuestionId } = useWorkspaceStore();
+
+  // selected question -> URL + visit count
+  useEffect(() => {
+    if (!selectedQuestionId) return;
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("q") !== selectedQuestionId) {
+      url.searchParams.set("q", selectedQuestionId);
+      window.history.replaceState({}, "", url.toString());
+    }
+
+    const LS_KEY = "dk:questionVisitCounts";
+    const raw = window.localStorage.getItem(LS_KEY);
+    const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+    map[selectedQuestionId] = (map[selectedQuestionId] ?? 0) + 1;
+    window.localStorage.setItem(LS_KEY, JSON.stringify(map));
+  }, [selectedQuestionId]);
+
+
 
   useEffect(() => {
     router.prefetch("/");
     router.prefetch("/public");
   }, [router]);
 
-  function navigateTo(path: "/" | "/public") {
-    if (pathname === path) return;
-    startNavigation(() => {
-      router.push(path);
-    });
-  }
+
 
   return (
     <aside className="hidden h-full w-72 shrink-0 flex-col overflow-hidden border-r bg-card/80 backdrop-blur-xl md:flex">
@@ -59,7 +95,7 @@ export function Sidebar({
         <div className="flex h-8 w-8 items-center justify-center rounded-md bg-foreground text-background">
           <span className="text-sm font-bold">DK</span>
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{workspaceTitle}</p>
           <p className="text-xs text-muted-foreground">{workspaceSubtitle}</p>
         </div>
@@ -68,30 +104,7 @@ export function Sidebar({
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-1 border-b p-3">
-        <Button
-          type="button"
-          variant={!isPublicWorkspace ? "secondary" : "ghost"}
-          size="sm"
-          className="justify-start"
-          disabled={isNavigating}
-          onClick={() => navigateTo("/")}
-        >
-          {isNavigating && isPublicWorkspace ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-          Private
-        </Button>
-        <Button
-          type="button"
-          variant={isPublicWorkspace ? "secondary" : "ghost"}
-          size="sm"
-          className="justify-start"
-          disabled={isNavigating}
-          onClick={() => navigateTo("/public")}
-        >
-          {isNavigating && !isPublicWorkspace ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe2 className="h-4 w-4" />}
-          Public
-        </Button>
-      </div>
+
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
@@ -166,6 +179,35 @@ export function Sidebar({
             )}
           </div>
         )}
+
+        {/* Combined filter dropdown (top) */}
+        <div className="border-b px-3 py-3">
+          <label className="mb-1 block px-1 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Library
+          </label>
+          <div className="relative">
+            <select
+              className="w-full appearance-none rounded-md border bg-background/60 px-2 py-2 pr-8 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              value={pathname === "/public" ? "/public" : pathname === "/most-viewed" ? "/most-viewed" : pathname === "/starred" ? "/starred" : "/"}
+              disabled={isNavigating}
+              onChange={(e) => {
+                const value = e.target.value as "/" | "/public" | "/most-viewed" | "/starred";
+                startNavigation(() => {
+                  router.push(value);
+                });
+              }}
+            >
+              <option value="/">Private</option>
+              <option value="/public">Public</option>
+              <option value="/most-viewed">Most Viewed</option>
+              <option value="/starred">Starred</option>
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-muted-foreground">
+              <ChevronRight className="h-4 w-4 rotate-90" />
+            </div>
+          </div>
+        </div>
+
       </div>
       </div>
 
@@ -176,7 +218,9 @@ export function Sidebar({
           variant="ghost"
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
         >
-          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          <span suppressHydrationWarning>
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </span>
           Toggle theme
         </Button>
       </div>

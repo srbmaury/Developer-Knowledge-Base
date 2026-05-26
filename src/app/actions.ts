@@ -123,6 +123,7 @@ export async function createQuestionAction(input: {
   description?: string;
   difficulty?: Difficulty;
   order?: number;
+  defaultLanguage?: SolutionLanguage;
 }) {
   let userId: string;
   try {
@@ -142,7 +143,7 @@ export async function createQuestionAction(input: {
   const question = await prisma.question.create({
     data: {
       categoryId: input.categoryId,
-      title: input.title.trim(),
+          title: input.title.trim(),
       description: input.description ?? "",
       difficulty: input.difficulty ?? "MEDIUM",
       isPinned,
@@ -150,7 +151,7 @@ export async function createQuestionAction(input: {
       solutions: {
         create: {
           title: "Best Approach",
-          language: "typescript",
+          language: input.defaultLanguage ?? "typescript",
           content: "",
           notes: "",
           order: 0
@@ -159,6 +160,7 @@ export async function createQuestionAction(input: {
     },
     include: { solutions: true }
   });
+
 
   revalidateWorkspacePaths();
   return {

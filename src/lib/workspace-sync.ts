@@ -32,8 +32,8 @@ export const workspaceSync = {
 
   deleteCategory: (categoryId: string) => deleteCategoryAction({ categoryId }),
 
-  createQuestion: (categoryId: string, title: string, order?: number) =>
-    createQuestionAction({ categoryId, title, order }),
+  createQuestion: (categoryId: string, title: string, order: number | undefined, defaultLanguage: SolutionLanguage) =>
+    createQuestionAction({ categoryId, title, order, defaultLanguage }),
 
   updateQuestion: (questionId: string, patch: QuestionPatch) => updateQuestionAction({ questionId, ...patch }),
 

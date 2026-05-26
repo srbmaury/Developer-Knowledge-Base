@@ -1,8 +1,25 @@
 /** True when content was saved from the legacy HTML editor. */
 export function isLikelyHtml(content: string) {
   const trimmed = content.trim();
-  return trimmed.startsWith("<") && /<\/[a-z][\s\S]*>/i.test(trimmed);
+
+  // Detect actual HTML tags, not markdown that happens to start with "<".
+  // Heuristics:
+  // - starts with an element tag
+  // - includes at least one closing tag
+  // - doesn't look like escaped HTML (e.g. "<div>")
+  if (!trimmed.startsWith("<")) return false;
+  if (trimmed.includes("<") || trimmed.includes(">")) return false;
+
+  const hasOpeningTag = /^<\s*([a-zA-Z][a-zA-Z0-9:-]*)\b/.test(trimmed);
+  if (!hasOpeningTag) return false;
+
+  // At least one closing tag: </tag>
+  const hasClosingTag = /<\/[a-zA-Z][a-zA-Z0-9:-]*\b[^>]*>/i.test(trimmed);
+  if (!hasClosingTag) return false;
+
+  return true;
 }
+
 
 /** Strip wrappers and fix common GPT formatting issues in markdown. */
 export function normalizeGeneratedMarkdown(raw: string) {

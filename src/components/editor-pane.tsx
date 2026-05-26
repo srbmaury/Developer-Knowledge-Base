@@ -91,7 +91,8 @@ export function EditorPane() {
           questionTitle: question.title,
           questionDescription: question.description,
           difficulty: question.difficulty,
-          language: solution.language
+          language: solution.language,
+          defaultLanguage: useWorkspaceStore.getState().defaultLanguage
         })
       });
 

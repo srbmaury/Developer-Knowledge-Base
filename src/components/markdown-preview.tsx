@@ -29,7 +29,11 @@ export function MarkdownPreview({ content, className, fillPane, embedded }: Mark
     className
   );
 
-  if (legacyHtml) {
+  // If legacy mode is selected but the content looks escaped,
+  // rendering via dangerouslySetInnerHTML results in “raw HTML”.
+  const looksEscapedHtml = content.includes("<") || content.includes(">");
+
+  if (legacyHtml && !looksEscapedHtml) {
     return (
       <div className={shellClass}>
         <HighlightJsTheme />
@@ -44,6 +48,7 @@ export function MarkdownPreview({ content, className, fillPane, embedded }: Mark
       </div>
     );
   }
+
 
   return (
     <div className={shellClass}>

@@ -9,6 +9,7 @@ import type { Category, Difficulty, Question, Solution, SolutionLanguage } from 
 export type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
 
 type WorkspaceState = {
+  defaultLanguage: SolutionLanguage;
   categories: Category[];
   selectedCategoryId: string | null;
   selectedQuestionId: string | null;
@@ -21,6 +22,11 @@ type WorkspaceState = {
   saveStatus: SaveStatus;
   query: string;
   commandOpen: boolean;
+
+  /** Derived indexes for faster lookups (not persisted) */
+  questionIdToCategoryId: Map<string, string>;
+  solutionIdToLocation: Map<string, SolutionLocation>;
+
   setInitialData: (categories: Category[]) => void;
   selectCategory: (categoryId: string) => void;
   selectQuestion: (questionId: string) => void;
@@ -89,6 +95,11 @@ function findCategoryForQuestion(categories: Category[], questionId: string): Ca
   return null;
 }
 
+type SolutionLocation = {
+  questionId: string;
+  categoryId: string;
+};
+
 function findCategoryForSolution(categories: Category[], solutionId: string): Category | null {
   for (const category of categories) {
     if (category.questions.some((question) => question.solutions.some((solution) => solution.id === solutionId))) {
@@ -98,6 +109,40 @@ function findCategoryForSolution(categories: Category[], solutionId: string): Ca
     if (nested) return nested;
   }
   return null;
+}
+
+function buildSolutionLocationIndex(categories: Category[]) {
+  const bySolutionId = new Map<string, SolutionLocation>();
+
+  const visit = (nodes: Category[]) => {
+    for (const category of nodes) {
+      for (const question of category.questions) {
+        for (const solution of question.solutions) {
+          bySolutionId.set(solution.id, { questionId: question.id, categoryId: category.id });
+        }
+      }
+      if (category.children?.length) visit(category.children);
+    }
+  };
+
+  visit(categories);
+  return bySolutionId;
+}
+
+function buildQuestionLocationIndex(categories: Category[]) {
+  const byQuestionId = new Map<string, string>(); // questionId -> categoryId
+
+  const visit = (nodes: Category[]) => {
+    for (const category of nodes) {
+      for (const question of category.questions) {
+        byQuestionId.set(question.id, category.id);
+      }
+      if (category.children?.length) visit(category.children);
+    }
+  };
+
+  visit(categories);
+  return byQuestionId;
 }
 
 function canEditCategory(categories: Category[], categoryId: string | null | undefined) {
@@ -144,26 +189,34 @@ function updateQuestionInTree(
 function updateSolutionInTree(
   categories: Category[],
   solutionId: string,
-  updater: (solution: Solution) => Solution
+  updater: (solution: Solution) => Solution,
+  opts?: { categoryIdToMutate?: string; questionIdToMutate?: string }
 ): Category[] {
   const now = new Date().toISOString();
 
-  return mapCategories(categories, (category) => ({
-    ...category,
-    questions: category.questions.map((question) => {
-      if (!question.solutions.some((solution) => solution.id === solutionId)) {
-        return question;
-      }
+  return mapCategories(categories, (category) => {
+    const shouldMutateCategory = opts?.categoryIdToMutate ? category.id === opts.categoryIdToMutate : true;
+    if (!shouldMutateCategory) return category;
 
-      return {
-        ...question,
-        updatedAt: now,
-        solutions: question.solutions.map((solution) =>
-          solution.id === solutionId ? updater({ ...solution, updatedAt: now }) : solution
-        )
-      };
-    })
-  }));
+    return {
+      ...category,
+      questions: category.questions.map((question) => {
+        const shouldMutateQuestion = opts?.questionIdToMutate
+          ? question.id === opts.questionIdToMutate
+          : question.solutions.some((solution) => solution.id === solutionId);
+
+        if (!shouldMutateQuestion) return question;
+
+        return {
+          ...question,
+          updatedAt: now,
+          solutions: question.solutions.map((solution) =>
+            solution.id === solutionId ? updater({ ...solution, updatedAt: now }) : solution
+          )
+        };
+      })
+    };
+  });
 }
 
 function removeSolutionFromTree(categories: Category[], solutionId: string): Category[] {
@@ -322,6 +375,7 @@ function scheduleSolutionSave(solutionId: string, content: string) {
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set, get) => ({
+      defaultLanguage: "typescript",
       ...(setSaveStatus ??= (status: SaveStatus) => set({ saveStatus: status })),
       categories: [],
       selectedCategoryId: null,
@@ -335,7 +389,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       saveStatus: "idle",
       query: "",
       commandOpen: false,
+      questionIdToCategoryId: new Map(),
+      solutionIdToLocation: new Map(),
       setInitialData: (categories) => {
+        const questionIdToCategoryId = buildQuestionLocationIndex(categories);
+        const solutionIdToLocation = buildSolutionLocationIndex(categories);
         const state = get();
         const firstCategory = categories[0];
         const firstQuestion = flattenQuestions(categories)[0];
@@ -347,6 +405,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
         set({
           categories,
+          questionIdToCategoryId,
+          solutionIdToLocation,
           selectedCategoryId: selectedCategoryStillExists
             ? state.selectedCategoryId
             : (firstCategory?.id ?? null),
@@ -362,12 +422,16 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
       selectCategory: (categoryId) => set({ selectedCategoryId: categoryId }),
       selectQuestion: (questionId) => {
-        const question = flattenQuestions(get().categories).find((item) => item.id === questionId);
+        const state = get();
+        const question = flattenQuestions(state.categories).find((item) => item.id === questionId);
+        const categoryId = state.questionIdToCategoryId.get(questionId) ?? question?.categoryId ?? state.selectedCategoryId;
         set({
           selectedQuestionId: questionId,
-          selectedCategoryId: question?.categoryId ?? get().selectedCategoryId,
+          selectedCategoryId: categoryId,
           selectedSolutionId: question?.solutions[0]?.id ?? null
         });
+
+        // URL sync is handled by client components (Sidebar) via `?q=<questionId>`.
       },
       selectSolution: (solutionId) => set({ selectedSolutionId: solutionId }),
       toggleCategory: (categoryId) =>
@@ -548,7 +612,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
 
         try {
-          const result = await workspaceSync.createQuestion(categoryId, title, order);
+          const result = await workspaceSync.createQuestion(categoryId, title, order, get().defaultLanguage);
           if (!result.ok || !("question" in result) || !result.question) {
             toast.error("message" in result ? result.message : "Failed to create question.");
             set((state) => ({
@@ -838,6 +902,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       name: "developer-knowledge-base-workspace",
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
+        defaultLanguage: state.defaultLanguage,
         selectedCategoryId: state.selectedCategoryId,
         selectedQuestionId: state.selectedQuestionId,
         selectedSolutionId: state.selectedSolutionId,

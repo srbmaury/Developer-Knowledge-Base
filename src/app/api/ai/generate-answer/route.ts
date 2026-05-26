@@ -15,6 +15,7 @@ type GenerateAnswerRequest = {
   questionDescription: string;
   difficulty: string;
   language: string;
+  defaultLanguage: string;
 };
 
 async function callOpenAi(
@@ -108,7 +109,8 @@ export async function POST(request: NextRequest) {
   }
 
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-  const lang = body.language && body.language !== "none" ? body.language : "typescript";
+  const fallbackLanguage = body.defaultLanguage && body.defaultLanguage !== "none" ? body.defaultLanguage : "typescript";
+  const lang = body.language && body.language !== "none" ? body.language : fallbackLanguage;
   const fallbackDifficulty = (body.difficulty?.toUpperCase() ?? "MEDIUM") as Difficulty;
   const userPrompt = buildUserPrompt(body, lang);
 
