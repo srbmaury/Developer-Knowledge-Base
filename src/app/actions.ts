@@ -117,6 +117,37 @@ export async function deleteCategoryAction(input: { categoryId: string }) {
   return { ok: true as const };
 }
 
+export async function reorderCategoriesAction(input: { parentId?: string | null; categoryIds: string[] }) {
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const categories = await prisma.category.findMany({
+    where: { parentId: input.parentId ?? null, userId },
+    select: { id: true }
+  });
+
+  const validIds = new Set(categories.map((category) => category.id));
+  const updates = input.categoryIds
+    .filter((id) => validIds.has(id))
+    .map((id, index) => ({ id, order: index }));
+
+  await prisma.$transaction(
+    updates.map(({ id, order }) =>
+      prisma.category.update({
+        where: { id },
+        data: { order }
+      })
+    )
+  );
+
+  revalidateWorkspacePaths();
+  return { ok: true as const };
+}
+
 export async function createQuestionAction(input: {
   categoryId: string;
   title: string;

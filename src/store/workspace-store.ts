@@ -44,6 +44,7 @@ type WorkspaceState = {
   updateQuestionDescription: (questionId: string, description: string) => void;
   updateQuestionDifficulty: (questionId: string, difficulty: Difficulty) => void;
   reorderQuestions: (categoryId: string, questionIds: string[]) => void;
+  reorderCategories: (parentId: string | null, categoryIds: string[]) => void;
   deleteQuestion: (questionId: string) => void;
   addSolution: (questionId: string, title: string) => Promise<void>;
   deleteSolution: (solutionId: string) => Promise<void>;
@@ -248,6 +249,39 @@ function reorderQuestionsInCategory(categories: Category[], categoryId: string, 
     }));
 
     return { ...category, questions: sortQuestions(withOrder) };
+  });
+}
+
+function reorderCategoryList(categories: Category[], categoryIds: string[]): Category[] {
+  const byId = new Map(categories.map((category) => [category.id, category]));
+  const reordered = categoryIds
+    .map((id) => byId.get(id))
+    .filter((category): category is Category => category !== undefined);
+  const remaining = categories.filter((category) => !categoryIds.includes(category.id));
+
+  return reordered.concat(remaining).map((category, index) => ({
+    ...category,
+    order: index
+  }));
+}
+
+function reorderCategoriesInTree(
+  categories: Category[],
+  parentId: string | null,
+  categoryIds: string[]
+): Category[] {
+  if (parentId === null) {
+    return reorderCategoryList(categories, categoryIds);
+  }
+
+  return mapCategories(categories, (category) => {
+    if (category.id === parentId) {
+      return {
+        ...category,
+        children: reorderCategoryList(category.children, categoryIds)
+      };
+    }
+    return category;
   });
 }
 
@@ -646,6 +680,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                 ? result.question.solutionId ?? tempSolutionId
                 : state.selectedSolutionId
           }));
+          
+          toast.success("Question created");
+          
           if (currentQuestion) {
             if (currentQuestion.title !== title || currentQuestion.description) {
               runSave(() =>
@@ -711,6 +748,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           categories: reorderQuestionsInCategory(state.categories, categoryId, questionIds)
         }));
         void workspaceSync.reorderQuestions(categoryId, questionIds);
+      },
+      reorderCategories: (parentId, categoryIds) => {
+        set((state) => ({
+          categories: reorderCategoriesInTree(state.categories, parentId, categoryIds)
+        }));
+        void workspaceSync.reorderCategories(parentId, categoryIds);
       },
       deleteQuestion: (questionId) => {
         if (!canEditQuestion(get().categories, questionId)) return;

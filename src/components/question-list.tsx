@@ -83,6 +83,7 @@ function SortableQuestionCard({
         role="button"
         tabIndex={0}
         className="w-full cursor-pointer pl-7 text-left"
+        title={`${question.title || "Untitled question"}${question.description ? ` - ${question.description}` : ""}`}
         onClick={onSelect}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -95,9 +96,9 @@ function SortableQuestionCard({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
               {question.isPinned ? <Pin className="h-3.5 w-3.5 text-accent" /> : null}
-              <p className="line-clamp-2 text-sm font-semibold">{question.title || "Untitled question"}</p>
+              <p className="line-clamp-2 text-sm font-semibold" title={question.title || "Untitled question"}>{question.title || "Untitled question"}</p>
             </div>
-            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{question.description}</p>
+            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground" title={question.description}>{question.description}</p>
             {difficulty ? (
               <Badge className={cn("mt-2", difficultyBadgeClass(question.difficulty))}>{difficulty.label}</Badge>
             ) : null}
@@ -198,7 +199,7 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
   }
 
   return (
-    <div className={cn("flex h-full min-h-0 flex-col", compact && "max-h-64")}>
+    <div className={cn("flex h-full min-h-0 min-w-0 flex-col", compact && "max-h-64")}>
       {!compact ? (
         <div className="flex h-14 items-center justify-between border-b px-4">
           <div>
@@ -228,7 +229,7 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
       ) : null}
       <div
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto p-3",
+          "min-h-0 min-w-0 flex-1 overflow-y-auto p-3",
           compact ? "flex gap-2 overflow-x-auto" : "space-y-2"
         )}
       >

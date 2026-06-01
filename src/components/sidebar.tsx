@@ -2,8 +2,20 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useTransition } from "react";
-import { ChevronRight, Folder, FolderOpen, Globe2, Loader2, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
+import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, type DragEndEvent, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { ChevronRight, Folder, FolderOpen, Globe2, GripVertical, Loader2, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
+
+function findCategory(categories: Category[], categoryId: string): Category | null {
+  for (const category of categories) {
+    if (category.id === categoryId) return category;
+    const nested = findCategory(category.children, categoryId);
+    if (nested) return nested;
+  }
+  return null;
+}
 import { buildRecentActivity, resolveQuestionIdFromActivity } from "@/lib/recent-activity";
 import { formatRelativeDate, cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspace-store";
@@ -38,7 +50,8 @@ export function Sidebar({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [isNavigating, startNavigation] = useTransition();
+  const [isNavigating, s,
+    reorderCategoriestartNavigation] = useTransition();
   const isCreatingRootCategory = creatingCategoryKeys.includes("__root__");
   const recentActivity = useMemo(() => buildRecentActivity(categories), [categories]);
 
@@ -61,7 +74,26 @@ export function Sidebar({
     if (exists) selectQuestion(q);
   }, [categories, searchParams, selectQuestion]);
 
-  const { selectedQuestionId } = useWorkspaceStore();
+  const { selectedQuestionId, reorderCategories } = useWorkspaceStore();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 4 } }),
+    useSensor(KeyboardSensor)
+  );
+
+  function handleCategoryDragEnd(event: DragEndEvent, parentId: string | null) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const siblings = parentId === null ? categories : findCategory(categories, parentId)?.children ?? [];
+    const ids = siblings.map((category) => category.id);
+    const oldIndex = ids.indexOf(active.id as string);
+    const newIndex = ids.indexOf(over.id as string);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    reorderCategories(parentId, arrayMove(ids, oldIndex, newIndex));
+  }
 
   // selected question -> URL + visit count
   useEffect(() => {
@@ -90,7 +122,7 @@ export function Sidebar({
 
 
   return (
-    <aside className="hidden h-full w-72 shrink-0 flex-col overflow-hidden border-r bg-card/80 backdrop-blur-xl md:flex">
+    <aside className="flex h-full w-full shrink-0 flex-col overflow-hidden border-r bg-card/80 backdrop-blur-xl md:flex">
       <div className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
         <div className="flex h-8 w-8 items-center justify-center rounded-md bg-foreground text-background">
           <span className="text-sm font-bold">DK</span>
@@ -122,11 +154,21 @@ export function Sidebar({
               </Button>
             ) : null}
           </div>
-          <nav className="space-y-1">
-            {categories.map((category) => (
-              <CategoryNode key={category.id} category={category} depth={0} />
-            ))}
-          </nav>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => handleCategoryDragEnd(event, null)}>
+            <SortableContext items={categories.map((category) => category.id)} strategy={verticalListSortingStrategy}>
+              <nav className="space-y-1">
+                {categories.map((category) => (
+                  <CategoryNode
+                    key={category.id}
+                    category={category}
+                    depth={0}
+                    sensors={sensors}
+                    onDragEnd={handleCategoryDragEnd}
+                  />
+                ))}
+              </nav>
+            </SortableContext>
+          </DndContext>
         </div>
 
         <div className="shrink-0 border-t px-3 py-3">
@@ -234,7 +276,11 @@ function countSubtreeQuestions(category: Category): number {
   );
 }
 
-function CategoryNode({ category, depth }: { category: Category; depth: number }) {
+function countSubcategories(category: Category): number {
+  return category.children.length + category.children.reduce((sum, child) => sum + countSubcategories(child), 0);
+}
+
+function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Category; depth: number; sensors: ReturnType<typeof useSensors>; onDragEnd: (event: DragEndEvent, parentId: string | null) => void }) {
   const {
     selectedCategoryId,
     expandedCategoryIds,
@@ -246,9 +292,14 @@ function CategoryNode({ category, depth }: { category: Category; depth: number }
     deleteCategory,
     creatingCategoryKeys
   } = useWorkspaceStore();
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: category.id,
+    disabled: !category.canEdit
+  });
   const expanded = expandedCategoryIds.includes(category.id);
   const active = selectedCategoryId === category.id;
   const questionCount = countSubtreeQuestions(category);
+  const subcategoryCount = countSubcategories(category);
   const isCreatingChildCategory = creatingCategoryKeys.includes(category.id);
 
   function handleDelete() {
@@ -265,7 +316,11 @@ function CategoryNode({ category, depth }: { category: Category; depth: number }
   }
 
   return (
-    <div>
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(isDragging && "opacity-80", "rounded-md")}
+    >
       <div className="flex items-center gap-1">
         <Button
           size="icon"
@@ -288,6 +343,18 @@ function CategoryNode({ category, depth }: { category: Category; depth: number }
           >
             {expanded ? <FolderOpen className="h-4 w-4 shrink-0 text-accent" /> : <Folder className="h-4 w-4 shrink-0" />}
             {category.canEdit ? (
+              <button
+                type="button"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted/80 hover:text-foreground"
+                {...attributes}
+                {...listeners}
+                aria-label={`Reorder ${category.name}`}
+                title="Drag to reorder"
+              >
+                <GripVertical className="h-4 w-4" />
+              </button>
+            ) : null}
+            {category.canEdit ? (
               <Input
                 value={category.name}
                 onChange={(event) => updateCategoryName(category.id, event.target.value)}
@@ -299,6 +366,7 @@ function CategoryNode({ category, depth }: { category: Category; depth: number }
                 onKeyDown={(event) => {
                   if (event.key === "Enter") event.currentTarget.blur();
                 }}
+                title={category.name || "Untitled category"}
                 className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
                 aria-label={`Rename ${category.name}`}
                 placeholder="Untitled category"
@@ -307,12 +375,18 @@ function CategoryNode({ category, depth }: { category: Category; depth: number }
               <button
                 type="button"
                 onClick={() => selectCategory(category.id)}
+                title={category.name || "Untitled category"}
                 className="h-7 min-w-0 flex-1 truncate text-left text-sm"
               >
                 {category.name || "Untitled category"}
               </button>
             )}
-            <span className="ml-auto text-xs text-muted-foreground">{category.questions.length}</span>
+            <span
+              className="ml-auto text-xs text-muted-foreground"
+              title={`${category.questions.length} direct · ${subcategoryCount} subcategories · ${questionCount} total`}
+            >
+              {questionCount}
+            </span>
           </div>
           <div className="hidden shrink-0 items-center group-hover:flex">
           {category.canEdit ? (
@@ -355,9 +429,19 @@ function CategoryNode({ category, depth }: { category: Category; depth: number }
       </div>
       {expanded && category.children.length > 0 ? (
         <div className="ml-5 border-l pl-1">
-          {category.children.map((child) => (
-            <CategoryNode key={child.id} category={child} depth={depth + 1} />
-          ))}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => onDragEnd(event, category.id)}>
+            <SortableContext items={category.children.map((child) => child.id)} strategy={verticalListSortingStrategy}>
+              {category.children.map((child) => (
+                <CategoryNode
+                  key={child.id}
+                  category={child}
+                  depth={depth + 1}
+                  sensors={sensors}
+                  onDragEnd={onDragEnd}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       ) : null}
     </div>

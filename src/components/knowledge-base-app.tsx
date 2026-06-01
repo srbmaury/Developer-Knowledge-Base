@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "@/components/use-hotkeys";
 import { CommandPalette } from "@/components/command-palette";
 import { EditorPane } from "@/components/editor-pane";
@@ -35,6 +35,10 @@ export function KnowledgeBaseApp({
   } = useWorkspaceStore();
   const [categoriesOpen, setCategoriesOpen] = useState(true);
   const [questionsOpen, setQuestionsOpen] = useState(true);
+  const [categoriesWidth, setCategoriesWidth] = useState(288); // w-72 = 18rem = 288px
+  const [questionsWidth, setQuestionsWidth] = useState(320); // w-80 = 20rem = 320px
+  const [resizing, setResizing] = useState<"categories" | "questions" | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setInitialData(initialCategories);
@@ -53,22 +57,82 @@ export function KnowledgeBaseApp({
     selectedCategoryId && creatingQuestionCategoryIds.includes(selectedCategoryId)
   );
 
+  useEffect(() => {
+    if (!selectedCategoryId) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("q") !== selectedCategoryId) {
+      url.searchParams.set("q", selectedCategoryId);
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [selectedCategoryId]);
+
+  // Handle resize logic for sidebars
+  useEffect(() => {
+    if (!resizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const newX = e.clientX - rect.left;
+
+      if (resizing === "categories") {
+        // Constrain categories width between 200px and 500px
+        setCategoriesWidth(Math.max(200, Math.min(500, newX)));
+      } else if (resizing === "questions") {
+        // Calculate position relative to categories sidebar + resize handle
+        const questionsStart = categoriesOpen ? categoriesWidth + 4 : 0;
+        const relativeX = newX - questionsStart;
+        // Constrain questions width between 200px and 500px
+        setQuestionsWidth(Math.max(200, Math.min(500, relativeX)));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setResizing(null);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [resizing, categoriesOpen, categoriesWidth]);
+
   return (
     <TooltipProvider>
-      <main className="flex h-screen overflow-hidden bg-background/85 text-foreground">
+      <main ref={containerRef} className="flex h-screen overflow-hidden bg-background/85 text-foreground">
         {categoriesOpen ? (
-          <Sidebar
-            userEmail={userEmail}
-            workspaceTitle={workspaceTitle}
-            workspaceSubtitle={workspaceSubtitle}
-            canCreateRootCategory={canCreateRootCategory}
-            onCollapse={() => setCategoriesOpen(false)}
-          />
+          <>
+            <div className="hidden h-full shrink-0 overflow-hidden md:flex" style={{ width: `${categoriesWidth}px` }}>
+              <Sidebar
+                userEmail={userEmail}
+                workspaceTitle={workspaceTitle}
+                workspaceSubtitle={workspaceSubtitle}
+                canCreateRootCategory={canCreateRootCategory}
+                onCollapse={() => setCategoriesOpen(false)}
+              />
+            </div>
+            <div
+              className="hidden h-full w-1 cursor-col-resize select-none bg-transparent hover:bg-primary/20 md:block"
+              onMouseDown={() => setResizing("categories")}
+              title="Drag to resize categories"
+            />
+          </>
         ) : null}
         {questionsOpen ? (
-          <section className="hidden h-full w-80 shrink-0 overflow-hidden border-r bg-background/70 lg:flex lg:flex-col">
-            <QuestionList onCollapse={() => setQuestionsOpen(false)} />
-          </section>
+          <>
+            <section className="hidden h-full min-w-0 shrink-0 overflow-hidden border-r bg-background/70 lg:flex lg:flex-col" style={{ width: `${questionsWidth}px` }}>
+              <QuestionList onCollapse={() => setQuestionsOpen(false)} />
+            </section>
+            <div
+              className="hidden h-full w-1 cursor-col-resize select-none bg-transparent hover:bg-primary/20 lg:block"
+              onMouseDown={() => setResizing("questions")}
+              title="Drag to resize questions"
+            />
+          </>
         ) : null}
         <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur-xl sm:px-5">

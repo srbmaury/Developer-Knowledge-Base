@@ -30,7 +30,6 @@ export function EditorPane() {
     selectSolution,
     addSolution,
     deleteSolution,
-    deleteQuestion,
     updateQuestionTitle,
     updateQuestionDescription,
     updateQuestionDifficulty,
@@ -40,6 +39,7 @@ export function EditorPane() {
     toggleFavorite,
     toggleImportant,
     creatingSolutionQuestionIds,
+    creatingQuestionCategoryIds,
     saveStatus
   } = useWorkspaceStore();
   const question = getAllQuestions(categories).find((item) => item.id === selectedQuestionId);
@@ -48,6 +48,7 @@ export function EditorPane() {
   const canEdit = selectedCategory?.canEdit ?? false;
   const questionDescription = question?.description;
   const isCreatingSolution = Boolean(question && creatingSolutionQuestionIds.includes(question.id));
+  const isCreatingQuestion = Boolean(selectedQuestionId && selectedQuestionId.startsWith("temp-question"));
 
   const titleRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -129,6 +130,17 @@ export function EditorPane() {
   }
 
   if (!question || !solution) {
+    if (isCreatingQuestion) {
+      return (
+        <div className="flex min-h-full items-center justify-center p-8">
+          <div className="max-w-md rounded-lg border border-dashed bg-card p-8 text-center">
+            <Loader2 className="mx-auto h-10 w-10 animate-spin text-muted-foreground" />
+            <h1 className="mt-4 text-xl font-semibold">Creating question...</h1>
+            <p className="mt-2 text-sm text-muted-foreground">Setting up your new note.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-h-full items-center justify-center p-8">
         <div className="max-w-md rounded-lg border border-dashed bg-card p-8 text-center">
@@ -141,7 +153,7 @@ export function EditorPane() {
   }
 
   return (
-    <article>
+    <article className="min-w-0">
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8">
         <div className="flex flex-col gap-4 border-b pb-5">
         <div className="flex flex-col gap-3">
@@ -153,6 +165,7 @@ export function EditorPane() {
                 value={question.title}
                 onChange={(event) => updateQuestionTitle(question.id, event.target.value)}
                 readOnly={!canEdit}
+                title={question.title || "Enter a title"}
                 className="h-12 w-full border-0 bg-transparent px-0 py-0 text-2xl font-semibold tracking-normal shadow-none focus-visible:ring-0 sm:text-4xl"
                 aria-label="Question title"
                 placeholder="Enter a title"
@@ -213,24 +226,27 @@ export function EditorPane() {
           </div>
 
           {/* Description Row */}
-          <Textarea
-            ref={descriptionRef}
-            value={question.description}
-            onChange={(event) =>
-              updateQuestionDescription(question.id, event.target.value)
-            }
-            readOnly={!canEdit}
-            rows={1}
-            className="w-full resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none focus-visible:ring-0 min-h-0 max-h-[4.5rem]"
-            style={{ height: "auto" }}
-            onInput={(e) => {
-              const target = e.currentTarget;
-              target.style.height = "auto";
-              target.style.height = `${Math.min(target.scrollHeight, 72)}px`;
-            }}
-            aria-label="Question description"
-            placeholder="Add a short description"
-          />
+          <div className="flex flex-col gap-1">
+            <Textarea
+              ref={descriptionRef}
+              value={question.description}
+              onChange={(event) =>
+                updateQuestionDescription(question.id, event.target.value)
+              }
+              readOnly={!canEdit}
+              title={question.description || "Add a short description"}
+              rows={1}
+              className="w-full resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none focus-visible:ring-0 min-h-0 max-h-[4.5rem]"
+              style={{ height: "auto" }}
+              onInput={(e) => {
+                const target = e.currentTarget;
+                target.style.height = "auto";
+                target.style.height = `${Math.min(target.scrollHeight, 72)}px`;
+              }}
+              aria-label="Question description"
+              placeholder="Add a short description"
+            />
+          </div>
         </div>
         </div>
 
@@ -288,6 +304,7 @@ export function EditorPane() {
                       value={item.title}
                       onChange={(event) => updateSolutionTitle(item.id, event.target.value)}
                       readOnly={!canEdit}
+                      title={item.title || "Untitled approach"}
                       className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 font-medium shadow-none focus-visible:ring-0"
                       aria-label="Approach title"
                       placeholder="Untitled approach"
