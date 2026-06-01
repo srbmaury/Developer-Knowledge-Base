@@ -5,6 +5,7 @@ import {
   deleteCategoryAction,
   deleteQuestionAction,
   deleteSolutionAction,
+  reorderCategoriesAction,
   reorderQuestionsAction,
   updateCategoryAction,
   updateCategoryVisibilityAction,
@@ -38,6 +39,9 @@ export const workspaceSync = {
   updateQuestion: (questionId: string, patch: QuestionPatch) => updateQuestionAction({ questionId, ...patch }),
 
   deleteQuestion: (questionId: string) => deleteQuestionAction({ questionId }),
+
+  reorderCategories: (parentId: string | null, categoryIds: string[]) =>
+    reorderCategoriesAction({ parentId, categoryIds }),
 
   reorderQuestions: (categoryId: string, questionIds: string[]) =>
     reorderQuestionsAction({ categoryId, questionIds }),
