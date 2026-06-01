@@ -437,6 +437,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           state.selectedQuestionId !== null &&
           flattenQuestions(categories).some((question) => question.id === state.selectedQuestionId);
 
+        // Respect persisted expandedCategoryIds even when it's an empty array.
+        let persistedExpanded: string[] | undefined = undefined;
+        try {
+          const raw = localStorage.getItem("developer-knowledge-base-workspace");
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            const maybeState = parsed?.state ?? parsed;
+            if (maybeState && Array.isArray(maybeState.expandedCategoryIds)) persistedExpanded = maybeState.expandedCategoryIds;
+          }
+        } catch (e) {
+          // ignore
+        }
+
         set({
           categories,
           questionIdToCategoryId,
@@ -450,8 +463,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           selectedSolutionId: selectedQuestionStillExists
             ? state.selectedSolutionId
             : (firstQuestion?.solutions[0]?.id ?? null),
-          expandedCategoryIds:
-            state.expandedCategoryIds.length > 0 ? state.expandedCategoryIds : categories.map((category) => category.id)
+          expandedCategoryIds: persistedExpanded !== undefined
+            ? persistedExpanded
+            : (state.expandedCategoryIds.length > 0 ? state.expandedCategoryIds : categories.map((category) => category.id))
         });
       },
       selectCategory: (categoryId) => set({ selectedCategoryId: categoryId }),
