@@ -5,7 +5,7 @@ import { useEffect, useMemo, useTransition } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, type DragEndEvent, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronRight, Folder, FolderOpen, Globe2, GripVertical, Loader2, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronUp, Folder, FolderOpen, Globe2, GripVertical, Loader2, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
 
 function findCategory(categories: Category[], categoryId: string): Category | null {
@@ -41,19 +41,54 @@ export function Sidebar({
     categories,
     addCategory,
     selectQuestion,
+    toggleCategory,
     isRecentActivityOpen,
     toggleRecentActivity,
     creatingCategoryKeys
   } = useWorkspaceStore();
   const { theme, setTheme } = useTheme();
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [isNavigating, s,
-    reorderCategoriestartNavigation] = useTransition();
   const isCreatingRootCategory = creatingCategoryKeys.includes("__root__");
   const recentActivity = useMemo(() => buildRecentActivity(categories), [categories]);
+
+  function collectAllCategoryIds(nodes: Category[]) {
+    const ids: string[] = [];
+    const visit = (items: Category[]) => {
+      for (const item of items) {
+        ids.push(item.id);
+        if (item.children?.length) visit(item.children);
+      }
+    };
+    visit(nodes);
+    return ids;
+  }
+
+  function totalQuestionsCount(nodes: Category[]) {
+    let total = 0;
+    const visit = (items: Category[]) => {
+      for (const item of items) {
+        total += item.questions.length;
+        if (item.children?.length) visit(item.children);
+      }
+    };
+    visit(nodes);
+    return total;
+  }
+
+  function expandAll() {
+    const allIds = collectAllCategoryIds(categories);
+    const expanded = useWorkspaceStore.getState().expandedCategoryIds;
+    for (const id of allIds) {
+      if (!expanded.includes(id)) toggleCategory(id);
+    }
+  }
+
+  function collapseAll() {
+    const expanded = [...useWorkspaceStore.getState().expandedCategoryIds];
+    for (const id of expanded) toggleCategory(id);
+  }
 
   // URL -> selected question
   useEffect(() => {
@@ -141,18 +176,28 @@ export function Sidebar({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-3 flex items-center justify-between px-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Categories</p>
-            {canCreateRootCategory ? (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-7 w-7"
-                disabled={isCreatingRootCategory}
-                onClick={() => void addCategory("New Category")}
-              >
-                {isCreatingRootCategory ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Categories</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={expandAll} aria-label="Expand all categories" title="Expand all">
+                <ChevronDown className="h-4 w-4" />
               </Button>
-            ) : null}
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={collapseAll} aria-label="Collapse all categories" title="Collapse all">
+                <ChevronUp className="h-4 w-4" />
+              </Button>
+              {canCreateRootCategory ? (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  disabled={isCreatingRootCategory}
+                  onClick={() => void addCategory("New Category")}
+                >
+                  {isCreatingRootCategory ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                </Button>
+              ) : null}
+            </div>
           </div>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => handleCategoryDragEnd(event, null)}>
             <SortableContext items={categories.map((category) => category.id)} strategy={verticalListSortingStrategy}>
@@ -172,99 +217,66 @@ export function Sidebar({
         </div>
 
         <div className="shrink-0 border-t px-3 py-3">
-        <button
-          type="button"
-          onClick={toggleRecentActivity}
-          className="mb-2 flex w-full items-center justify-between px-1 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-        >
-          <span>Recent activity</span>
-
-          <span className="text-[10px]">
-            {isRecentActivityOpen ? "−" : "+"}
-          </span>
-        </button>
-
-        {isRecentActivityOpen && (
-          <div className="max-h-40 space-y-2 overflow-y-auto">
-            {recentActivity.length === 0 ? (
-              <p className="px-1 text-xs text-muted-foreground">
-                Edits will appear here.
-              </p>
-            ) : (
-              recentActivity.map((activity) => (
-                <button
-                  key={activity.id}
-                  type="button"
-                  onClick={() => {
-                    const questionId = resolveQuestionIdFromActivity(
-                      categories,
-                      activity.id
-                    );
-
-                    if (questionId) selectQuestion(questionId);
-                  }}
-                  className="w-full rounded-md border bg-background/60 p-2 text-left transition-colors hover:bg-muted/80"
-                >
-                  <p className="line-clamp-1 text-xs font-medium">
-                    {activity.label}
-                  </p>
-
-                  <p className="line-clamp-1 text-xs text-muted-foreground">
-                    {activity.detail}
-                  </p>
-
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {formatRelativeDate(activity.timestamp)}
-                  </p>
-                </button>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* Combined filter dropdown (top) */}
-        <div className="border-b px-3 py-3">
-          <label className="mb-1 block px-1 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Library
-          </label>
-          <div className="relative">
-            <select
-              className="w-full appearance-none rounded-md border bg-background/60 px-2 py-2 pr-8 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              value={pathname === "/public" ? "/public" : pathname === "/most-viewed" ? "/most-viewed" : pathname === "/starred" ? "/starred" : "/"}
-              disabled={isNavigating}
-              onChange={(e) => {
-                const value = e.target.value as "/" | "/public" | "/most-viewed" | "/starred";
-                startNavigation(() => {
-                  router.push(value);
-                });
-              }}
+          <div className="mb-2 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={toggleRecentActivity}
+              className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
             >
-              <option value="/">Private</option>
-              <option value="/public">Public</option>
-              <option value="/most-viewed">Most Viewed</option>
-              <option value="/starred">Starred</option>
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-muted-foreground">
-              <ChevronRight className="h-4 w-4 rotate-90" />
+              <span>Recent activity</span>
+              <span className="text-[10px]">{isRecentActivityOpen ? "−" : "+"}</span>
+            </button>
+            <div className="text-xs text-muted-foreground">{recentActivity.length} edits</div>
+          </div>
+
+          {isRecentActivityOpen && (
+            <div className="max-h-36 space-y-2 overflow-y-auto mb-3">
+              {recentActivity.length === 0 ? (
+                <p className="px-1 text-xs text-muted-foreground">Edits will appear here.</p>
+              ) : (
+                recentActivity.map((activity) => (
+                  <button
+                    key={activity.id}
+                    type="button"
+                    onClick={() => {
+                      const questionId = resolveQuestionIdFromActivity(categories, activity.id);
+                      if (questionId) selectQuestion(questionId);
+                    }}
+                    className="w-full rounded-md border bg-background/60 p-2 text-left transition-colors hover:bg-muted/80"
+                  >
+                    <p className="line-clamp-1 text-xs font-medium">{activity.label}</p>
+                    <p className="line-clamp-1 text-xs text-muted-foreground">{activity.detail}</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">{formatRelativeDate(activity.timestamp)}</p>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs text-muted-foreground">
+              <div>Categories: <strong className="text-foreground">{categories.length}</strong></div>
+              <div>Notes: <strong className="text-foreground">{totalQuestionsCount(categories)}</strong></div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {canCreateRootCategory ? (
+                <Button size="sm" variant="ghost" onClick={() => void addCategory("New Category")} disabled={isCreatingRootCategory}>
+                  {isCreatingRootCategory ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
+                </Button>
+              ) : null}
+              <Button className="h-8 w-8" size="icon" variant="ghost" onClick={() => setTheme(theme === "dark" ? "light" : "dark") } aria-label="Toggle theme">
+                <span suppressHydrationWarning>{theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</span>
+              </Button>
             </div>
           </div>
+
         </div>
 
-      </div>
       </div>
 
       <div className="shrink-0 space-y-1 border-t p-3">
         <UserMenu email={userEmail} />
-        <Button
-          className="w-full justify-start"
-          variant="ghost"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        >
-          <span suppressHydrationWarning>
-            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </span>
-          Toggle theme
-        </Button>
       </div>
     </aside>
   );
