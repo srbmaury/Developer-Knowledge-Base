@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { toast } from "sonner";
 import { workspaceSync } from "@/lib/workspace-sync";
+import { SAVE_DEBOUNCE_MS } from "@/lib/constants";
 import type { Category, Difficulty, Question, Solution, SolutionLanguage } from "@/types/knowledge";
 
 export type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
@@ -15,7 +16,6 @@ type WorkspaceState = {
   selectedQuestionId: string | null;
   selectedSolutionId: string | null;
   expandedCategoryIds: string[];
-  isRecentActivityOpen: boolean;
   creatingCategoryKeys: string[];
   creatingQuestionCategoryIds: string[];
   creatingSolutionQuestionIds: string[];
@@ -32,7 +32,6 @@ type WorkspaceState = {
   selectQuestion: (questionId: string) => void;
   selectSolution: (solutionId: string) => void;
   toggleCategory: (categoryId: string) => void;
-  toggleRecentActivity: () => void;
   setQuery: (query: string) => void;
   setCommandOpen: (open: boolean) => void;
   addCategory: (name: string, parentId?: string | null) => Promise<void>;
@@ -342,7 +341,7 @@ function scheduleCategoryNameSave(categoryId: string, name: string) {
     setTimeout(() => {
       runSave(() => workspaceSync.updateCategory(categoryId, name));
       categoryNameSaveTimers.delete(categoryId);
-    }, 650)
+    }, SAVE_DEBOUNCE_MS)
   );
 }
 
@@ -357,7 +356,7 @@ function scheduleQuestionTitleSave(questionId: string, title: string) {
     setTimeout(() => {
       runSave(() => workspaceSync.updateQuestion(questionId, { title }));
       questionTitleSaveTimers.delete(questionId);
-    }, 650)
+    }, SAVE_DEBOUNCE_MS)
   );
 }
 
@@ -372,7 +371,7 @@ function scheduleQuestionDescriptionSave(questionId: string, description: string
     setTimeout(() => {
       runSave(() => workspaceSync.updateQuestion(questionId, { description }));
       questionDescriptionSaveTimers.delete(questionId);
-    }, 650)
+    }, SAVE_DEBOUNCE_MS)
   );
 }
 
@@ -387,7 +386,7 @@ function scheduleSolutionTitleSave(solutionId: string, title: string) {
     setTimeout(() => {
       runSave(() => workspaceSync.updateSolution(solutionId, { title }));
       solutionTitleSaveTimers.delete(solutionId);
-    }, 650)
+    }, SAVE_DEBOUNCE_MS)
   );
 }
 
@@ -402,7 +401,7 @@ function scheduleSolutionSave(solutionId: string, content: string) {
     setTimeout(() => {
       runSave(() => workspaceSync.updateSolution(solutionId, { content }));
       contentSaveTimers.delete(solutionId);
-    }, 600)
+    }, SAVE_DEBOUNCE_MS)
   );
 }
 
@@ -416,7 +415,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       selectedQuestionId: null,
       selectedSolutionId: null,
       expandedCategoryIds: [],
-      isRecentActivityOpen: true,
       creatingCategoryKeys: [],
       creatingQuestionCategoryIds: [],
       creatingSolutionQuestionIds: [],
@@ -487,10 +485,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           expandedCategoryIds: state.expandedCategoryIds.includes(categoryId)
             ? state.expandedCategoryIds.filter((id) => id !== categoryId)
             : [...state.expandedCategoryIds, categoryId]
-        })),
-      toggleRecentActivity: () =>
-        set((state) => ({
-          isRecentActivityOpen: !state.isRecentActivityOpen
         })),
       setQuery: (query) => set({ query }),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
@@ -963,8 +957,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         selectedCategoryId: state.selectedCategoryId,
         selectedQuestionId: state.selectedQuestionId,
         selectedSolutionId: state.selectedSolutionId,
-        expandedCategoryIds: state.expandedCategoryIds,
-        isRecentActivityOpen: state.isRecentActivityOpen
+        expandedCategoryIds: state.expandedCategoryIds
       })
     }
   )

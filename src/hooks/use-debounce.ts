@@ -1,10 +1,7 @@
 import { useEffect, useRef } from "react";
+import { SAVE_DEBOUNCE_MS } from "@/lib/constants";
 
-/**
- * Hook to debounce a callback function with a specified delay.
- * The callback is called only after the specified delay has passed since the last call.
- */
-export function useDebounce(callback: () => void, delay: number = 500) {
+export function useDebounce(callback: () => void, delay: number = SAVE_DEBOUNCE_MS) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {

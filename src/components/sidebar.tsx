@@ -1,11 +1,11 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, type DragEndEvent, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronRight, ChevronDown, ChevronUp, Folder, FolderOpen, Globe2, GripVertical, Loader2, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronUp, Eye, Folder, FolderOpen, Globe2, GripVertical, Home, Loader2, Lock, Moon, PanelLeftClose, Plus, Star, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
 
 function findCategory(categories: Category[], categoryId: string): Category | null {
@@ -16,8 +16,7 @@ function findCategory(categories: Category[], categoryId: string): Category | nu
   }
   return null;
 }
-import { buildRecentActivity, resolveQuestionIdFromActivity } from "@/lib/recent-activity";
-import { formatRelativeDate, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspace-store";
 import type { Category } from "@/types/knowledge";
 import { UserMenu } from "@/components/user-menu";
@@ -42,16 +41,33 @@ export function Sidebar({
     addCategory,
     selectQuestion,
     toggleCategory,
-    isRecentActivityOpen,
-    toggleRecentActivity,
     creatingCategoryKeys
   } = useWorkspaceStore();
   const { theme, setTheme } = useTheme();
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const isCreatingRootCategory = creatingCategoryKeys.includes("__root__");
-  const recentActivity = useMemo(() => buildRecentActivity(categories), [categories]);
+
+  const navItems = [
+    { href: "/", label: "Home", icon: Home },
+    { href: "/most-viewed", label: "Most Viewed", icon: Eye },
+    { href: "/starred", label: "Starred", icon: Star },
+    { href: "/public", label: "Public", icon: Globe2 },
+  ] as const;
+  const currentNav = navItems.find((item) => item.href === pathname) ?? navItems[0];
+  const [isNavOpen, setIsNavOpen] = useState(false);
+  const navRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isNavOpen) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) setIsNavOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [isNavOpen]);
 
   function collectAllCategoryIds(nodes: Category[]) {
     const ids: string[] = [];
@@ -90,14 +106,19 @@ export function Sidebar({
     for (const id of expanded) toggleCategory(id);
   }
 
-  // URL -> selected question
+  // Keep a ref so the URL→question effect can read current categories
+  // without being in its dependency array (avoids overriding optimistic selection
+  // every time categories mutate).
+  const categoriesRef = useRef(categories);
+  categoriesRef.current = categories;
+
+  // URL -> selected question (only on real URL navigation, not on category mutations)
   useEffect(() => {
     const q = searchParams.get("q");
     if (!q) return;
 
-    // flatten via recursive scan
     const exists = (() => {
-      const stack = [...categories];
+      const stack = [...categoriesRef.current];
       while (stack.length) {
         const c = stack.pop()!;
         for (const qq of c.questions) if (qq.id === q) return true;
@@ -107,7 +128,8 @@ export function Sidebar({
     })();
 
     if (exists) selectQuestion(q);
-  }, [categories, searchParams, selectQuestion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, selectQuestion]);
 
   const { selectedQuestionId, reorderCategories } = useWorkspaceStore();
 
@@ -173,6 +195,36 @@ export function Sidebar({
 
 
 
+      <div ref={navRef} className="relative shrink-0 border-b px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setIsNavOpen((prev) => !prev)}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
+        >
+          <currentNav.icon className="h-4 w-4" />
+          <span className="flex-1 text-left">{currentNav.label}</span>
+          <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", isNavOpen && "rotate-180")} />
+        </button>
+        {isNavOpen && (
+          <div className="absolute left-3 right-3 top-full z-50 mt-1 rounded-md border bg-card shadow-md">
+            {navItems.map(({ href, label, icon: Icon }) => (
+              <button
+                key={href}
+                type="button"
+                onClick={() => { router.push(href); setIsNavOpen(false); }}
+                className={cn(
+                  "flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors first:rounded-t-md last:rounded-b-md hover:bg-muted",
+                  pathname === href && "bg-muted font-medium"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-3 flex items-center justify-between px-1">
@@ -217,42 +269,6 @@ export function Sidebar({
         </div>
 
         <div className="shrink-0 border-t px-3 py-3">
-          <div className="mb-2 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={toggleRecentActivity}
-              className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-            >
-              <span>Recent activity</span>
-              <span className="text-[10px]">{isRecentActivityOpen ? "−" : "+"}</span>
-            </button>
-            <div className="text-xs text-muted-foreground">{recentActivity.length} edits</div>
-          </div>
-
-          {isRecentActivityOpen && (
-            <div className="max-h-36 space-y-2 overflow-y-auto mb-3">
-              {recentActivity.length === 0 ? (
-                <p className="px-1 text-xs text-muted-foreground">Edits will appear here.</p>
-              ) : (
-                recentActivity.map((activity) => (
-                  <button
-                    key={activity.id}
-                    type="button"
-                    onClick={() => {
-                      const questionId = resolveQuestionIdFromActivity(categories, activity.id);
-                      if (questionId) selectQuestion(questionId);
-                    }}
-                    className="w-full rounded-md border bg-background/60 p-2 text-left transition-colors hover:bg-muted/80"
-                  >
-                    <p className="line-clamp-1 text-xs font-medium">{activity.label}</p>
-                    <p className="line-clamp-1 text-xs text-muted-foreground">{activity.detail}</p>
-                    <p className="mt-1 text-[11px] text-muted-foreground">{formatRelativeDate(activity.timestamp)}</p>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs text-muted-foreground">
               <div>Categories: <strong className="text-foreground">{categories.length}</strong></div>

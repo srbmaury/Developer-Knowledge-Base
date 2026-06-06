@@ -51,6 +51,7 @@ function SortableQuestionCard({
   onSelect: () => void;
   onDelete: () => void;
 }) {
+  const isTemp = question.id.startsWith("temp-");
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: question.id,
     disabled: !canEdit
@@ -65,7 +66,8 @@ function SortableQuestionCard({
         "group relative w-full rounded-lg border bg-card p-3 text-left shadow-sm transition-[box-shadow,border-color] hover:border-primary/40 hover:shadow-md",
         selected && "border-primary/60 ring-1 ring-primary/30",
         isDragging && "z-10 border-primary/50 opacity-90 shadow-lg",
-        compact && "min-w-72 shrink-0"
+        compact && "min-w-72 shrink-0",
+        isTemp && "cursor-default opacity-60"
       )}
       {...(canEdit ? attributes : {})}
       {...(canEdit ? listeners : {})}
@@ -180,7 +182,8 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
   }
 
   function renderQuestionCard(question: Question) {
-    const canEdit = getCategoryForQuestion(categories, question.id)?.canEdit ?? false;
+    const isTemp = question.id.startsWith("temp-");
+    const canEdit = !isTemp && (getCategoryForQuestion(categories, question.id)?.canEdit ?? false);
     return (
       <SortableQuestionCard
         key={question.id}
@@ -188,7 +191,7 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
         compact={compact}
         selected={selectedQuestionId === question.id}
         canEdit={canEdit}
-        onSelect={() => selectQuestion(question.id)}
+        onSelect={isTemp ? () => {} : () => selectQuestion(question.id)}
         onDelete={() => {
           if (window.confirm(`Delete "${question.title || "Untitled question"}"?`)) {
             deleteQuestion(question.id);

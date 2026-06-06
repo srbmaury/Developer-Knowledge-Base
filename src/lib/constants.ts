@@ -1,3 +1,5 @@
+export const SAVE_DEBOUNCE_MS = Number(process.env.NEXT_PUBLIC_SAVE_DEBOUNCE_MS ?? 1000);
+
 import type { SolutionLanguage } from "@/types/knowledge";
 
 export const LANGUAGES: Array<{ value: SolutionLanguage; label: string }> = [
