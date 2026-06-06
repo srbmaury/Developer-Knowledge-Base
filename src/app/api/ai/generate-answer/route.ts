@@ -18,6 +18,28 @@ type GenerateAnswerRequest = {
   defaultLanguage: string;
 };
 
+// Sliding-window in-memory rate limiter. Resets when the server process restarts.
+// Swap the Map for a Redis client to share limits across instances.
+const rateLimitMap = new Map<string, number[]>();
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = 10;
+
+function checkRateLimit(userId: string): { allowed: boolean; retryAfterSecs: number } {
+  const now = Date.now();
+  const hits = (rateLimitMap.get(userId) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  if (hits.length >= RATE_MAX) {
+    rateLimitMap.set(userId, hits);
+    const retryAfterSecs = Math.ceil((hits[0] + RATE_WINDOW_MS - now) / 1000);
+    return { allowed: false, retryAfterSecs };
+  }
+  hits.push(now);
+  rateLimitMap.set(userId, hits);
+  return { allowed: true, retryAfterSecs: 0 };
+}
+
+const MAX_TITLE_CHARS = 200;
+const MAX_DESC_CHARS = 2000;
+
 async function callOpenAi(
   apiKey: string,
   model: string,
@@ -71,9 +93,11 @@ async function callOpenAi(
 }
 
 function buildUserPrompt(body: GenerateAnswerRequest, lang: string) {
+  const title = body.questionTitle.slice(0, MAX_TITLE_CHARS);
+  const description = (body.questionDescription ?? "").slice(0, MAX_DESC_CHARS) || "No description provided.";
   return [
-    `Question: ${body.questionTitle}`,
-    `Description: ${body.questionDescription || "No description provided."}`,
+    `Question: ${title}`,
+    `Description: ${description}`,
     `Current difficulty label: ${body.difficulty}`,
     `Preferred code language: ${lang}`,
     "Assess the true interview difficulty and set the difficulty field accordingly.",
@@ -86,6 +110,14 @@ export async function POST(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ error: "You must be signed in." }, { status: 401 });
+  }
+
+  const rateCheck = checkRateLimit(user.id);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: `Rate limit exceeded. Try again in ${rateCheck.retryAfterSecs}s.` },
+      { status: 429, headers: { "Retry-After": String(rateCheck.retryAfterSecs) } }
+    );
   }
 
   const apiKey = process.env.OPENAI_API_KEY;

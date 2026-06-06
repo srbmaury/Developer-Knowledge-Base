@@ -40,10 +40,13 @@ export function Sidebar({
     categories,
     addCategory,
     selectQuestion,
+    selectCategory,
     toggleCategory,
     creatingCategoryKeys
   } = useWorkspaceStore();
   const { theme, setTheme } = useTheme();
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => setThemeMounted(true), []);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -112,24 +115,39 @@ export function Sidebar({
   const categoriesRef = useRef(categories);
   categoriesRef.current = categories;
 
-  // URL -> selected question (only on real URL navigation, not on category mutations)
+  // URL -> selected category or question (only on real URL navigation, not on store mutations).
+  // ?q= is the canonical URL state; categories take priority so a shared category link
+  // lands on the right category even when questions are also present.
   useEffect(() => {
     const q = searchParams.get("q");
     if (!q) return;
 
-    const exists = (() => {
-      const stack = [...categoriesRef.current];
+    const cats = categoriesRef.current;
+
+    const findCategory = (id: string) => {
+      const stack = [...cats];
       while (stack.length) {
         const c = stack.pop()!;
-        for (const qq of c.questions) if (qq.id === q) return true;
+        if (c.id === id) return true;
         stack.push(...c.children);
       }
       return false;
-    })();
+    };
 
-    if (exists) selectQuestion(q);
+    const findQuestion = (id: string) => {
+      const stack = [...cats];
+      while (stack.length) {
+        const c = stack.pop()!;
+        for (const qq of c.questions) if (qq.id === id) return true;
+        stack.push(...c.children);
+      }
+      return false;
+    };
+
+    if (findCategory(q)) { selectCategory(q); return; }
+    if (findQuestion(q)) { selectQuestion(q); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, selectQuestion]);
+  }, [searchParams, selectCategory, selectQuestion]);
 
   const { selectedQuestionId, reorderCategories } = useWorkspaceStore();
 
@@ -152,16 +170,9 @@ export function Sidebar({
     reorderCategories(parentId, arrayMove(ids, oldIndex, newIndex));
   }
 
-  // selected question -> URL + visit count
+  // Track visit counts for most-viewed (no URL write — category owns ?q=)
   useEffect(() => {
     if (!selectedQuestionId) return;
-
-    const url = new URL(window.location.href);
-    if (url.searchParams.get("q") !== selectedQuestionId) {
-      url.searchParams.set("q", selectedQuestionId);
-      window.history.replaceState({}, "", url.toString());
-    }
-
     const LS_KEY = "dk:questionVisitCounts";
     const raw = window.localStorage.getItem(LS_KEY);
     const map: Record<string, number> = raw ? JSON.parse(raw) : {};
@@ -281,8 +292,8 @@ export function Sidebar({
                   {isCreatingRootCategory ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
                 </Button>
               ) : null}
-              <Button className="h-8 w-8" size="icon" variant="ghost" onClick={() => setTheme(theme === "dark" ? "light" : "dark") } aria-label="Toggle theme">
-                <span suppressHydrationWarning>{theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</span>
+              <Button className="h-8 w-8" size="icon" variant="ghost" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
+                {themeMounted ? (theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <Moon className="h-4 w-4" />}
               </Button>
             </div>
           </div>

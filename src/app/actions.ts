@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getOwnedCategory, getOwnedQuestion, getOwnedSolution } from "@/server/access";
 import { requireUserId } from "@/server/auth";
@@ -14,9 +14,9 @@ async function unauthorized() {
   return { ok: false as const, message: "You must be signed in." };
 }
 
-function revalidateWorkspacePaths() {
-  revalidatePath("/");
-  revalidatePath("/public");
+function revalidateWorkspace(userId: string) {
+  revalidateTag(`workspace:${userId}`);
+  revalidateTag("workspace:public");
 }
 
 export async function createCategoryAction(input: { name: string; parentId?: string | null; order?: number }) {
@@ -51,7 +51,7 @@ export async function createCategoryAction(input: { name: string; parentId?: str
     }
   });
 
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const, id: category.id };
 }
 
@@ -73,7 +73,7 @@ export async function updateCategoryAction(input: { categoryId: string; name: st
     data: { name: input.name.trim() }
   });
 
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const };
 }
 
@@ -95,7 +95,7 @@ export async function updateCategoryVisibilityAction(input: { categoryId: string
     data: { isPublic: input.isPublic }
   });
 
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const };
 }
 
@@ -113,7 +113,7 @@ export async function deleteCategoryAction(input: { categoryId: string }) {
   }
 
   await prisma.category.delete({ where: { id: input.categoryId } });
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const };
 }
 
@@ -130,10 +130,16 @@ export async function reorderCategoriesAction(input: { parentId?: string | null;
     select: { id: true }
   });
 
-  const validIds = new Set(categories.map((category) => category.id));
-  const updates = input.categoryIds
-    .filter((id) => validIds.has(id))
-    .map((id, index) => ({ id, order: index }));
+  const currentIds = new Set(categories.map((category) => category.id));
+
+  if (
+    input.categoryIds.length !== currentIds.size ||
+    input.categoryIds.some((id) => !currentIds.has(id))
+  ) {
+    return { ok: false as const, message: "Category list does not match current children." };
+  }
+
+  const updates = input.categoryIds.map((id, index) => ({ id, order: index }));
 
   await prisma.$transaction(
     updates.map(({ id, order }) =>
@@ -144,7 +150,7 @@ export async function reorderCategoriesAction(input: { parentId?: string | null;
     )
   );
 
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const };
 }
 
@@ -193,7 +199,7 @@ export async function createQuestionAction(input: {
   });
 
 
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return {
     ok: true as const,
     question: {
@@ -245,7 +251,7 @@ export async function updateQuestionAction(input: {
     }
   });
 
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const };
 }
 
@@ -263,7 +269,7 @@ export async function deleteQuestionAction(input: { questionId: string }) {
   }
 
   await prisma.question.delete({ where: { id: input.questionId } });
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const };
 }
 
@@ -296,7 +302,7 @@ export async function reorderQuestionsAction(input: { categoryId: string; questi
     )
   );
 
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const };
 }
 
@@ -325,7 +331,7 @@ export async function createSolutionAction(input: { questionId: string; title: s
     }
   });
 
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const, id: solution.id };
 }
 
@@ -364,7 +370,7 @@ export async function updateSolutionAction(input: {
     data: { updatedAt: new Date() }
   });
 
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const };
 }
 
@@ -381,18 +387,26 @@ export async function deleteSolutionAction(input: { solutionId: string }) {
     return { ok: false as const, message: "Approach not found." };
   }
 
-  const count = await prisma.solution.count({ where: { questionId: solution.questionId } });
-  if (count <= 1) {
+  // Single atomic statement: delete only when another solution exists for the same question.
+  // Avoids the race between a separate count check and the delete.
+  const deleted: number = await prisma.$executeRaw`
+    DELETE FROM "Solution"
+    WHERE id = ${input.solutionId}
+      AND (
+        SELECT COUNT(*) FROM "Solution"
+        WHERE "questionId" = ${solution.questionId}
+      ) > 1
+  `;
+
+  if (deleted === 0) {
     return { ok: false as const, message: "Cannot delete the only approach for this question." };
   }
-
-  await prisma.solution.delete({ where: { id: input.solutionId } });
 
   await prisma.question.update({
     where: { id: solution.questionId },
     data: { updatedAt: new Date() }
   });
 
-  revalidateWorkspacePaths();
+  revalidateWorkspace(userId);
   return { ok: true as const };
 }
