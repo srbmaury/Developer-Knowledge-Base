@@ -52,7 +52,7 @@ function makeQuestion(id: string, categoryId: string, order = 0) {
     order,
     createdAt: NOW,
     updatedAt: NOW,
-    solutions: [{ id: `sol-${id}`, questionId: id, title: "Approach", language: "typescript" as const, content: "", notes: "", order: 0, createdAt: NOW, updatedAt: NOW }]
+    solutions: [{ id: `sol-${id}`, questionId: id, title: "Approach", language: "typescript" as const, content: "", notes: "", aiReview: null, order: 0, createdAt: NOW, updatedAt: NOW }]
   };
 }
 

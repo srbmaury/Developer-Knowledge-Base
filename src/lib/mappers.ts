@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { compareQuestionsByPinAndOrder } from "@/lib/question-order";
 import type { Category, Difficulty, Question, Solution, SolutionLanguage } from "@/types/knowledge";
+import type { ReviewResult } from "@/lib/ai-answer";
 
 type CategoryWithRelations = Prisma.CategoryGetPayload<{
   include: {
@@ -23,6 +24,7 @@ function mapSolution(solution: CategoryWithRelations["questions"][number]["solut
     language: toSolutionLanguage(solution.language),
     content: solution.content,
     notes: solution.notes,
+    aiReview: (solution.aiReview as ReviewResult | null) ?? null,
     order: solution.order,
     createdAt: solution.createdAt.toISOString(),
     updatedAt: solution.updatedAt.toISOString()

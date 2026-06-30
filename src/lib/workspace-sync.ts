@@ -13,6 +13,7 @@ import {
   updateSolutionAction
 } from "@/app/actions";
 import type { Difficulty, SolutionLanguage } from "@/types/knowledge";
+import type { ReviewResult } from "@/lib/ai-answer";
 
 type QuestionPatch = {
   title?: string;
@@ -52,6 +53,6 @@ export const workspaceSync = {
 
   updateSolution: (
     solutionId: string,
-    patch: { title?: string; language?: SolutionLanguage; content?: string; notes?: string }
+    patch: { title?: string; language?: SolutionLanguage; content?: string; notes?: string; aiReview?: ReviewResult | null }
   ) => updateSolutionAction({ solutionId, ...patch })
 };

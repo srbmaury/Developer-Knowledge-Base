@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidateTag } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getOwnedCategory, getOwnedQuestion, getOwnedSolution } from "@/server/access";
 import { requireUserId } from "@/server/auth";
@@ -9,6 +10,7 @@ import {
   getNextQuestionOrder
 } from "@/server/question-order";
 import type { Difficulty, SolutionLanguage } from "@/types/knowledge";
+import type { ReviewResult } from "@/lib/ai-answer";
 
 async function unauthorized() {
   return { ok: false as const, message: "You must be signed in." };
@@ -341,6 +343,7 @@ export async function updateSolutionAction(input: {
   language?: SolutionLanguage;
   content?: string;
   notes?: string;
+  aiReview?: ReviewResult | null;
 }) {
   let userId: string;
   try {
@@ -360,7 +363,8 @@ export async function updateSolutionAction(input: {
       ...(input.title !== undefined ? { title: input.title.trim() } : {}),
       ...(input.language !== undefined ? { language: input.language } : {}),
       ...(input.content !== undefined ? { content: input.content } : {}),
-      ...(input.notes !== undefined ? { notes: input.notes } : {})
+      ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      ...(input.aiReview !== undefined ? { aiReview: input.aiReview === null ? Prisma.DbNull : input.aiReview } : {})
     },
     select: { questionId: true }
   });

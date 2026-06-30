@@ -22,8 +22,7 @@ function isNewQuestion(question: Question, solution: Solution) {
 
 export function EditorPane() {
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isReviewing, setIsReviewing] = useState(false);
-  const [activeReview, setActiveReview] = useState<{ solutionId: string; result: ReviewResult } | null>(null);
+  const [reviewingSolutionId, setReviewingSolutionId] = useState<string | null>(null);
   const [contentView, setContentView] = useState<MarkdownViewMode>("preview");
   const previousQuestionId = useRef<string | null>(null);
   const {
@@ -44,7 +43,8 @@ export function EditorPane() {
     toggleImportant,
     creatingSolutionQuestionIds,
     creatingQuestionCategoryIds,
-    saveStatus
+    saveStatus,
+    updateSolutionAiReview
   } = useWorkspaceStore();
   const question = getAllQuestions(categories).find((item) => item.id === selectedQuestionId);
   const solution = question?.solutions.find((item) => item.id === selectedSolutionId) ?? question?.solutions[0];
@@ -136,7 +136,8 @@ export function EditorPane() {
   async function reviewSolution() {
     if (!question || !solution || !solution.content.trim()) return;
 
-    setIsReviewing(true);
+    const targetId = solution.id;
+    setReviewingSolutionId(targetId);
     try {
       const response = await fetch("/api/ai/review-answer", {
         method: "POST",
@@ -161,11 +162,11 @@ export function EditorPane() {
         throw new Error(data.error ?? "Unable to review the answer.");
       }
 
-      setActiveReview({ solutionId: solution.id, result: data });
+      updateSolutionAiReview(targetId, data);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to review the answer.");
     } finally {
-      setIsReviewing(false);
+      setReviewingSolutionId(null);
     }
   }
 
@@ -332,11 +333,13 @@ export function EditorPane() {
               <Button
                 variant="outline"
                 onClick={() => void reviewSolution()}
-                disabled={isReviewing || !solution.content.trim()}
+                disabled={reviewingSolutionId !== null || !solution.content.trim()}
                 title={!solution.content.trim() ? "Add some content before reviewing" : undefined}
               >
-                <MessageSquare className="h-4 w-4" />
-                {isReviewing ? "Reviewing…" : "Review"}
+                {reviewingSolutionId === solution.id
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <MessageSquare className="h-4 w-4" />}
+                {reviewingSolutionId === solution.id ? "Reviewing…" : "Review"}
               </Button>
                 </>
               ) : null}
@@ -434,8 +437,16 @@ export function EditorPane() {
                     />
                   </div>
                 ) : null}
-                {activeReview?.solutionId === item.id ? (
-                  <ReviewPanel review={activeReview.result} onDismiss={() => setActiveReview(null)} />
+                {reviewingSolutionId === item.id ? (
+                  <div className="border-t px-4 py-4 flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    <span>AI is reviewing your solution…</span>
+                  </div>
+                ) : item.aiReview ? (
+                  <ReviewPanel
+                    review={item.aiReview}
+                    onDismiss={() => updateSolutionAiReview(item.id, null)}
+                  />
                 ) : null}
               </section>
             </TabsContent>
@@ -459,8 +470,14 @@ const RATING_LABEL: Record<ReviewResult["rating"], string> = {
 };
 
 function ReviewPanel({ review, onDismiss }: { review: ReviewResult; onDismiss: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, []);
+
   return (
-    <div className="border-t px-4 py-3">
+    <div ref={ref} className="border-t px-4 py-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">AI Review</p>

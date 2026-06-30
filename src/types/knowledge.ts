@@ -2,6 +2,8 @@ export type Difficulty = "EASY" | "MEDIUM" | "HARD";
 
 export type SolutionLanguage = "none" | "java" | "cpp" | "javascript" | "typescript" | "python" | "sql";
 
+import type { ReviewResult } from "@/lib/ai-answer";
+
 export type Solution = {
   id: string;
   questionId: string;
@@ -9,6 +11,7 @@ export type Solution = {
   language: SolutionLanguage;
   content: string;
   notes: string;
+  aiReview: ReviewResult | null;
   order: number;
   createdAt: string;
   updatedAt: string;

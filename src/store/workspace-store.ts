@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { workspaceSync } from "@/lib/workspace-sync";
 import { SAVE_DEBOUNCE_MS } from "@/lib/constants";
 import type { Category, Difficulty, Question, Solution, SolutionLanguage } from "@/types/knowledge";
+import type { ReviewResult } from "@/lib/ai-answer";
 
 export type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
 
@@ -53,6 +54,7 @@ type WorkspaceState = {
   updateSolutionNotes: (solutionId: string, notes: string) => void;
   toggleFavorite: (questionId: string) => void;
   toggleImportant: (questionId: string) => void;
+  updateSolutionAiReview: (solutionId: string, review: ReviewResult | null) => void;
 };
 
 function flattenQuestions(categories: Category[]): Question[] {
@@ -651,6 +653,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               language: "none",
               content: "",
               notes: "",
+              aiReview: null,
               order: 0,
               createdAt: now,
               updatedAt: now
@@ -819,6 +822,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           language: get().defaultLanguage,
           content: "",
           notes: "",
+          aiReview: null,
           order,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
@@ -980,6 +984,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           })
         }));
         void workspaceSync.updateQuestion(questionId, { isPinned });
+      },
+      updateSolutionAiReview: (solutionId, review) => {
+        if (!canEditSolution(get().categories, solutionId)) return;
+        set((state) => ({
+          categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, aiReview: review }))
+        }));
+        void workspaceSync.updateSolution(solutionId, { aiReview: review });
       }
     }),
     {
