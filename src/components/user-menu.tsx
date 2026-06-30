@@ -28,19 +28,17 @@ export function UserMenu({ email }: UserMenuProps) {
     );
   }
 
-  const displayEmail = email ?? "Signed in";
-
   return (
     <Dialog>
       <DialogTrigger asChild>
         <Button className="w-full justify-start gap-2" variant="ghost">
           <User className="h-4 w-4 shrink-0" />
-          <span className="truncate text-left text-sm">{displayEmail}</span>
+          <span className="truncate text-left text-sm">{email}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogTitle>Account</DialogTitle>
-        <DialogDescription>Signed in as {displayEmail}</DialogDescription>
+        <DialogDescription>Signed in as {email}</DialogDescription>
         <p className="text-sm text-muted-foreground">
           Your categories, questions, and approaches are private to this account.
         </p>

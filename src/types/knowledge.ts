@@ -40,10 +40,3 @@ export type Category = {
   children: Category[];
   questions: Question[];
 };
-
-export type ActivityItem = {
-  id: string;
-  label: string;
-  detail: string;
-  timestamp: string;
-};

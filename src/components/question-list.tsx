@@ -130,7 +130,7 @@ function SortableQuestionCard({
   );
 }
 
-export function QuestionList({ compact = false, onCollapse }: { compact?: boolean; onCollapse?: () => void }) {
+export function QuestionList({ compact = false, onCollapse, emptyMessage }: { compact?: boolean; onCollapse?: () => void; emptyMessage?: string }) {
   const {
     categories,
     selectedCategoryId,
@@ -240,7 +240,7 @@ export function QuestionList({ compact = false, onCollapse }: { compact?: boolea
           <div className="flex min-h-44 flex-col items-center justify-center rounded-lg border border-dashed p-5 text-center">
             <p className="text-sm font-medium">No questions yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {canEditSelectedCategory ? "Create one to start collecting snippets and approaches." : "No public questions here yet."}
+              {emptyMessage ?? (canEditSelectedCategory ? "Create one to start collecting snippets and approaches." : "No public questions here yet.")}
             </p>
             {canEditSelectedCategory ? (
               <Button

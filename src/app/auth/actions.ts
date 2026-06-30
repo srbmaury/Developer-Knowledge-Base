@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -24,7 +23,6 @@ export async function signInAction(_prev: AuthActionState, formData: FormData): 
     return { ok: false, message: error.message };
   }
 
-  revalidatePath("/", "layout");
   redirect("/");
 }
 
@@ -54,14 +52,12 @@ export async function signUpAction(_prev: AuthActionState, formData: FormData): 
     };
   }
 
-  revalidatePath("/", "layout");
   redirect("/");
 }
 
 export async function signOutAction() {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  revalidatePath("/", "layout");
   redirect("/login");
 }
 
@@ -92,6 +88,5 @@ export async function updatePasswordAction(_prev: AuthActionState, formData: For
 
   if (error) return { ok: false, message: error.message };
 
-  revalidatePath("/", "layout");
   redirect("/");
 }

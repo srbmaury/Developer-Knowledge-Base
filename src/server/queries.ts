@@ -3,25 +3,36 @@ import { buildCategoryTree } from "@/lib/mappers";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, requireUserId } from "@/server/auth";
 import { questionListOrderBy } from "@/server/question-order";
-import { ensureDefaultWorkspace } from "@/server/workspace-bootstrap";
 import type { Category } from "@/types/knowledge";
+
+const questionInclude = {
+  questions: {
+    include: { solutions: true },
+    orderBy: questionListOrderBy
+  }
+} as const;
 
 export async function getWorkspaceData() {
   const userId = await requireUserId();
-  await ensureDefaultWorkspace(userId);
 
   return unstable_cache(
     async (uid: string) => {
       const rows = await prisma.category.findMany({
         where: { userId: uid },
-        include: {
-          questions: {
-            include: { solutions: true },
-            orderBy: questionListOrderBy
-          }
-        },
+        include: questionInclude,
         orderBy: { order: "asc" }
       });
+
+      // First visit: bootstrap a default category so the workspace is never empty.
+      // Runs inside the cache so subsequent requests skip this entirely.
+      if (rows.length === 0) {
+        const defaultCat = await prisma.category.create({
+          data: { userId: uid, name: "Getting Started", order: 0 },
+          include: questionInclude
+        });
+        return { categories: buildCategoryTree([defaultCat], uid) };
+      }
+
       return { categories: buildCategoryTree(rows, uid) };
     },
     ["workspace", userId],

@@ -29,9 +29,9 @@ export function MarkdownPreview({ content, className, fillPane, embedded }: Mark
     className
   );
 
-  // If legacy mode is selected but the content looks escaped,
-  // rendering via dangerouslySetInnerHTML results in “raw HTML”.
-  const looksEscapedHtml = content.includes("<") || content.includes(">");
+  // If legacy mode is selected but the content has HTML-encoded brackets,
+  // it was stored escaped and dangerouslySetInnerHTML would show raw entities.
+  const looksEscapedHtml = content.includes("&lt;") || content.includes("&gt;");
 
   if (legacyHtml && !looksEscapedHtml) {
     return (

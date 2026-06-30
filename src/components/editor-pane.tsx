@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Bot, CheckCircle2, Copy, FileCode2, Loader2, Pin, Plus, Save, Star, Trash2 } from "lucide-react";
+import { AlertCircle, Bot, CheckCircle2, Copy, FileCode2, Lightbulb, Loader2, MessageSquare, Pin, Plus, Save, Star, Trash2, X } from "lucide-react";
+import type { ReviewResult } from "@/lib/ai-answer";
 import { toast } from "sonner";
 import { DIFFICULTIES, LANGUAGES } from "@/lib/constants";
 import { workspaceSync } from "@/lib/workspace-sync";
@@ -21,6 +22,8 @@ function isNewQuestion(question: Question, solution: Solution) {
 
 export function EditorPane() {
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [activeReview, setActiveReview] = useState<{ solutionId: string; result: ReviewResult } | null>(null);
   const [contentView, setContentView] = useState<MarkdownViewMode>("preview");
   const previousQuestionId = useRef<string | null>(null);
   const {
@@ -36,6 +39,7 @@ export function EditorPane() {
     updateSolutionTitle,
     updateSolutionLanguage,
     updateSolutionContent,
+    updateSolutionNotes,
     toggleFavorite,
     toggleImportant,
     creatingSolutionQuestionIds,
@@ -126,6 +130,42 @@ export function EditorPane() {
       toast.error(error instanceof Error ? error.message : "Unable to generate an answer.");
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function reviewSolution() {
+    if (!question || !solution || !solution.content.trim()) return;
+
+    setIsReviewing(true);
+    try {
+      const response = await fetch("/api/ai/review-answer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          questionTitle: question.title,
+          questionDescription: question.description,
+          solutionContent: solution.content,
+          solutionLanguage: solution.language
+        })
+      });
+
+      const raw = await response.text();
+      let data: ReviewResult & { error?: string };
+      try {
+        data = JSON.parse(raw) as typeof data;
+      } catch {
+        throw new Error("Server returned an invalid response.");
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Unable to review the answer.");
+      }
+
+      setActiveReview({ solutionId: solution.id, result: data });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to review the answer.");
+    } finally {
+      setIsReviewing(false);
     }
   }
 
@@ -289,6 +329,15 @@ export function EditorPane() {
                 <Bot className="h-4 w-4" />
                 {isGenerating ? "Generating…" : "AI answer"}
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => void reviewSolution()}
+                disabled={isReviewing || !solution.content.trim()}
+                title={!solution.content.trim() ? "Add some content before reviewing" : undefined}
+              >
+                <MessageSquare className="h-4 w-4" />
+                {isReviewing ? "Reviewing…" : "Review"}
+              </Button>
                 </>
               ) : null}
             </div>
@@ -372,12 +421,75 @@ export function EditorPane() {
                   onViewModeChange={setContentView}
                   readOnly={!canEdit}
                 />
+
+                {(canEdit || item.notes) ? (
+                  <div className="border-t px-4 py-3">
+                    <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
+                    <Textarea
+                      value={item.notes}
+                      onChange={(e) => updateSolutionNotes(item.id, e.target.value)}
+                      readOnly={!canEdit}
+                      placeholder="Edge cases, time complexity, personal observations…"
+                      className="min-h-[72px] resize-y border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+                    />
+                  </div>
+                ) : null}
+                {activeReview?.solutionId === item.id ? (
+                  <ReviewPanel review={activeReview.result} onDismiss={() => setActiveReview(null)} />
+                ) : null}
               </section>
             </TabsContent>
           ))}
         </Tabs>
       </div>
     </article>
+  );
+}
+
+const RATING_STYLES: Record<ReviewResult["rating"], string> = {
+  good: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
+  "needs-work": "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20",
+  poor: "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20"
+};
+
+const RATING_LABEL: Record<ReviewResult["rating"], string> = {
+  good: "Good",
+  "needs-work": "Needs work",
+  poor: "Poor"
+};
+
+function ReviewPanel({ review, onDismiss }: { review: ReviewResult; onDismiss: () => void }) {
+  return (
+    <div className="border-t px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">AI Review</p>
+          <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium", RATING_STYLES[review.rating])}>
+            {RATING_LABEL[review.rating]}
+          </span>
+        </div>
+        <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={onDismiss} aria-label="Dismiss review">
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <p className="mt-1.5 text-sm text-muted-foreground">{review.summary}</p>
+      {review.feedback.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {review.feedback.map((item, i) => (
+            <li key={i} className="flex gap-2.5 text-sm">
+              {item.type === "strength" ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+              ) : item.type === "issue" ? (
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              ) : (
+                <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+              )}
+              <span className="leading-snug">{item.text}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

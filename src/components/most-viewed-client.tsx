@@ -77,6 +77,7 @@ export function MostViewedClient({
       workspaceTitle="Most Viewed"
       workspaceSubtitle="Most viewed notes"
       canCreateRootCategory={false}
+      emptyMessage="Open some notes to see them here — visit counts are tracked in this browser."
     />
   );
 }

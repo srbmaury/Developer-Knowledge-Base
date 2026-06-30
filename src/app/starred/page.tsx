@@ -18,6 +18,7 @@ export default async function StarredPage() {
       workspaceTitle="Starred Notes"
       workspaceSubtitle="Your favorite notes"
       canCreateRootCategory={false}
+      emptyMessage="Star some notes from your workspace to see them here."
     />
   );
 }

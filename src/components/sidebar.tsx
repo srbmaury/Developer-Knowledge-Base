@@ -7,6 +7,12 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronRight, ChevronDown, ChevronUp, Eye, Folder, FolderOpen, Globe2, GripVertical, Home, Loader2, Lock, Moon, PanelLeftClose, Plus, Star, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
+import { cn } from "@/lib/utils";
+import { useWorkspaceStore } from "@/store/workspace-store";
+import type { Category } from "@/types/knowledge";
+import { UserMenu } from "@/components/user-menu";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 function findCategory(categories: Category[], categoryId: string): Category | null {
   for (const category of categories) {
@@ -16,12 +22,6 @@ function findCategory(categories: Category[], categoryId: string): Category | nu
   }
   return null;
 }
-import { cn } from "@/lib/utils";
-import { useWorkspaceStore } from "@/store/workspace-store";
-import type { Category } from "@/types/knowledge";
-import { UserMenu } from "@/components/user-menu";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 export function Sidebar({
   userEmail,

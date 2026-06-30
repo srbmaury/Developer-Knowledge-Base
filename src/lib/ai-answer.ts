@@ -71,6 +71,85 @@ export function parseGeneratedAnswer(raw: string, fallbackDifficulty: Difficulty
   };
 }
 
+// ─── AI Review ───────────────────────────────────────────────────────────────
+
+export type ReviewFeedbackItem = {
+  type: "strength" | "issue" | "suggestion";
+  text: string;
+};
+
+export type ReviewResult = {
+  rating: "good" | "needs-work" | "poor";
+  summary: string;
+  feedback: ReviewFeedbackItem[];
+};
+
+export const REVIEW_JSON_SCHEMA = {
+  name: "answer_review",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      rating: { type: "string", enum: ["good", "needs-work", "poor"] },
+      summary: { type: "string" },
+      feedback: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            type: { type: "string", enum: ["strength", "issue", "suggestion"] },
+            text: { type: "string" }
+          },
+          required: ["type", "text"],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ["rating", "summary", "feedback"],
+    additionalProperties: false
+  }
+} as const;
+
+export const REVIEW_SYSTEM_PROMPT = `You are a senior software engineer reviewing a technical interview answer.
+
+Return a JSON object with:
+- rating: "good" | "needs-work" | "poor" — overall quality
+- summary: one sentence (≤ 25 words) on the overall answer
+- feedback: 3–6 items, each with:
+  - type: "strength" (done well) | "issue" (correctness or completeness problem) | "suggestion" (specific improvement)
+  - text: 1–2 sentences, direct and actionable
+
+Evaluate: correctness, time/space complexity, edge case handling, code clarity, completeness.
+Be specific. No vague praise.`;
+
+export function parseReviewResult(raw: string): ReviewResult {
+  const parsed = parseJsonBody<{
+    rating?: unknown;
+    summary?: unknown;
+    feedback?: unknown;
+  }>(raw, "Review output");
+
+  const rating = ["good", "needs-work", "poor"].includes(String(parsed.rating ?? ""))
+    ? (parsed.rating as ReviewResult["rating"])
+    : "needs-work";
+
+  const feedback = Array.isArray(parsed.feedback)
+    ? (parsed.feedback as ReviewFeedbackItem[]).filter(
+        (item) =>
+          typeof item?.text === "string" &&
+          ["strength", "issue", "suggestion"].includes(item?.type)
+      )
+    : [];
+
+  return {
+    rating,
+    summary: String(parsed.summary ?? ""),
+    feedback
+  };
+}
+
+// ─── OpenAI helpers ──────────────────────────────────────────────────────────
+
 /** Extract assistant text from Chat Completions or Responses API payloads. */
 export function extractOpenAiText(data: unknown): string {
   if (!data || typeof data !== "object") return "";

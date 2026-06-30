@@ -53,8 +53,5 @@ export const workspaceSync = {
   updateSolution: (
     solutionId: string,
     patch: { title?: string; language?: SolutionLanguage; content?: string; notes?: string }
-  ) => updateSolutionAction({ solutionId, ...patch }),
-
-  updateDifficulty: (questionId: string, difficulty: Difficulty) =>
-    updateQuestionAction({ questionId, difficulty })
+  ) => updateSolutionAction({ solutionId, ...patch })
 };

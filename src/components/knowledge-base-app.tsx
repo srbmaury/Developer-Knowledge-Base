@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useHotkeys } from "@/components/use-hotkeys";
+import { useRouter } from "next/navigation";
+import { useHotkeys, useSequenceHotkey } from "@/components/use-hotkeys";
 import { CommandPalette } from "@/components/command-palette";
 import { EditorPane } from "@/components/editor-pane";
 import { QuestionList } from "@/components/question-list";
@@ -17,14 +18,17 @@ export function KnowledgeBaseApp({
   userEmail,
   workspaceTitle = "Developer Knowledge Base",
   workspaceSubtitle = "Your private workspace",
-  canCreateRootCategory = true
+  canCreateRootCategory = true,
+  emptyMessage
 }: {
   initialCategories: Category[];
   userEmail: string | null;
   workspaceTitle?: string;
   workspaceSubtitle?: string;
   canCreateRootCategory?: boolean;
+  emptyMessage?: string;
 }) {
+  const router = useRouter();
   const {
     categories,
     setInitialData,
@@ -35,10 +39,18 @@ export function KnowledgeBaseApp({
   } = useWorkspaceStore();
   const [categoriesOpen, setCategoriesOpen] = useState(true);
   const [questionsOpen, setQuestionsOpen] = useState(true);
-  const [categoriesWidth, setCategoriesWidth] = useState(288); // w-72 = 18rem = 288px
-  const [questionsWidth, setQuestionsWidth] = useState(320); // w-80 = 20rem = 320px
+  const [categoriesWidth, setCategoriesWidth] = useState(288);
+  const [questionsWidth, setQuestionsWidth] = useState(320);
   const [resizing, setResizing] = useState<"categories" | "questions" | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Restore persisted widths after mount (avoids SSR/hydration mismatch)
+  useEffect(() => {
+    const cw = Number(localStorage.getItem("dk:categoriesWidth"));
+    const qw = Number(localStorage.getItem("dk:questionsWidth"));
+    if (cw >= 200 && cw <= 500) setCategoriesWidth(cw);
+    if (qw >= 200 && qw <= 500) setQuestionsWidth(qw);
+  }, []);
 
   useEffect(() => {
     setInitialData(initialCategories);
@@ -46,6 +58,12 @@ export function KnowledgeBaseApp({
 
   useHotkeys("ctrl+k", () => setCommandOpen(true));
   useHotkeys("meta+k", () => setCommandOpen(true));
+
+  // g → h/m/s/p navigation (GitHub-style, ignored when an input is focused)
+  useSequenceHotkey("g", "h", () => router.push("/"));
+  useSequenceHotkey("g", "m", () => router.push("/most-viewed"));
+  useSequenceHotkey("g", "s", () => router.push("/starred"));
+  useSequenceHotkey("g", "p", () => router.push("/public"));
 
   const selectedCategoryName = useMemo(
     () => getCategoryById(categories, selectedCategoryId)?.name ?? "All Notes",
@@ -88,7 +106,17 @@ export function KnowledgeBaseApp({
       }
     };
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        if (resizing === "categories") {
+          localStorage.setItem("dk:categoriesWidth", String(Math.max(200, Math.min(500, x))));
+        } else if (resizing === "questions") {
+          const start = categoriesOpen ? categoriesWidth + 4 : 0;
+          localStorage.setItem("dk:questionsWidth", String(Math.max(200, Math.min(500, x - start))));
+        }
+      }
       setResizing(null);
     };
 
@@ -116,21 +144,25 @@ export function KnowledgeBaseApp({
               />
             </div>
             <div
+              role="separator"
+              aria-label="Resize categories sidebar"
+              aria-orientation="vertical"
               className="hidden h-full w-1 cursor-col-resize select-none bg-transparent hover:bg-primary/20 md:block"
               onMouseDown={() => setResizing("categories")}
-              title="Drag to resize categories"
             />
           </>
         ) : null}
         {questionsOpen ? (
           <>
             <section className="hidden h-full min-w-0 shrink-0 overflow-hidden border-r bg-background/70 lg:flex lg:flex-col" style={{ width: `${questionsWidth}px` }}>
-              <QuestionList onCollapse={() => setQuestionsOpen(false)} />
+              <QuestionList onCollapse={() => setQuestionsOpen(false)} emptyMessage={emptyMessage} />
             </section>
             <div
+              role="separator"
+              aria-label="Resize questions sidebar"
+              aria-orientation="vertical"
               className="hidden h-full w-1 cursor-col-resize select-none bg-transparent hover:bg-primary/20 lg:block"
               onMouseDown={() => setResizing("questions")}
-              title="Drag to resize questions"
             />
           </>
         ) : null}
@@ -180,7 +212,7 @@ export function KnowledgeBaseApp({
           <div className="grid min-h-0 shrink-0 grid-cols-1 lg:hidden">
             <div className="max-h-72 overflow-hidden border-b bg-background/70 p-3">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">{selectedCategoryName}</p>
-              <QuestionList compact />
+              <QuestionList compact emptyMessage={emptyMessage} />
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">

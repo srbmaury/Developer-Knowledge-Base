@@ -4,6 +4,16 @@ import { Command } from "cmdk";
 import { FileText, Folder, Search, Star } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { getAllQuestions, useWorkspaceStore } from "@/store/workspace-store";
+import type { Category } from "@/types/knowledge";
+
+type FlatCategory = { category: Category; path: string };
+
+function flattenCategories(cats: Category[], parentPath = ""): FlatCategory[] {
+  return cats.flatMap((cat) => {
+    const path = parentPath ? `${parentPath} / ${cat.name}` : cat.name;
+    return [{ category: cat, path: parentPath }, ...flattenCategories(cat.children, path)];
+  });
+}
 
 export function CommandPalette() {
   const {
@@ -16,6 +26,7 @@ export function CommandPalette() {
     query
   } = useWorkspaceStore();
   const questions = getAllQuestions(categories);
+  const flatCategories = flattenCategories(categories);
 
   return (
     <Dialog open={commandOpen} onOpenChange={setCommandOpen}>
@@ -46,24 +57,25 @@ export function CommandPalette() {
                   }}
                   className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm aria-selected:bg-muted"
                 >
-                  {question.isFavorite ? <Star className="h-4 w-4 text-amber-400" /> : <FileText className="h-4 w-4" />}
-                  <span>{question.title}</span>
+                  {question.isFavorite ? <Star className="h-4 w-4 shrink-0 text-amber-400" /> : <FileText className="h-4 w-4 shrink-0" />}
+                  <span className="min-w-0 flex-1 truncate">{question.title || "Untitled question"}</span>
                 </Command.Item>
               ))}
             </Command.Group>
             <Command.Group heading="Categories" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
-              {categories.map((category) => (
+              {flatCategories.map(({ category, path }) => (
                 <Command.Item
                   key={category.id}
-                  value={category.name}
+                  value={`${category.name} ${path}`}
                   onSelect={() => {
                     selectCategory(category.id);
                     setCommandOpen(false);
                   }}
                   className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm aria-selected:bg-muted"
                 >
-                  <Folder className="h-4 w-4" />
-                  <span>{category.name}</span>
+                  <Folder className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{category.name}</span>
+                  {path ? <span className="shrink-0 text-xs text-muted-foreground">{path}</span> : null}
                 </Command.Item>
               ))}
             </Command.Group>

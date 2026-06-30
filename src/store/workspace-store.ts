@@ -50,6 +50,7 @@ type WorkspaceState = {
   updateSolutionTitle: (solutionId: string, title: string) => void;
   updateSolutionLanguage: (solutionId: string, language: SolutionLanguage) => void;
   updateSolutionContent: (solutionId: string, content: string) => void;
+  updateSolutionNotes: (solutionId: string, notes: string) => void;
   toggleFavorite: (questionId: string) => void;
   toggleImportant: (questionId: string) => void;
 };
@@ -289,6 +290,7 @@ const categoryNameSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const questionTitleSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const questionDescriptionSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const solutionTitleSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const solutionNotesSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let activeSaveCount = 0;
 let savedStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let setSaveStatus: ((status: SaveStatus) => void) | null = null;
@@ -401,6 +403,21 @@ function scheduleSolutionSave(solutionId: string, content: string) {
     setTimeout(() => {
       runSave(() => workspaceSync.updateSolution(solutionId, { content }));
       contentSaveTimers.delete(solutionId);
+    }, SAVE_DEBOUNCE_MS)
+  );
+}
+
+function scheduleSolutionNotesSave(solutionId: string, notes: string) {
+  if (solutionId.startsWith("temp-")) return;
+  const existing = solutionNotesSaveTimers.get(solutionId);
+  if (existing) clearTimeout(existing);
+  markSavePending();
+
+  solutionNotesSaveTimers.set(
+    solutionId,
+    setTimeout(() => {
+      runSave(() => workspaceSync.updateSolution(solutionId, { notes }));
+      solutionNotesSaveTimers.delete(solutionId);
     }, SAVE_DEBOUNCE_MS)
   );
 }
@@ -748,7 +765,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             updatedAt: new Date().toISOString()
           }))
         }));
-        void workspaceSync.updateDifficulty(questionId, difficulty);
+        void workspaceSync.updateQuestion(questionId, { difficulty });
       },
       reorderQuestions: (categoryId, questionIds) => {
         if (!canEditCategory(get().categories, categoryId)) return;
@@ -769,15 +786,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
         set((state) => {
           const categories = removeQuestion(state.categories, questionId);
-          const nextQuestion = flattenQuestions(categories)[0] ?? null;
+
+          // Not the selected question — no selection change needed.
+          if (state.selectedQuestionId !== questionId) {
+            return { categories };
+          }
+
+          // Stay in the current category; pick the next question within it (or null).
+          const currentCat = state.selectedCategoryId
+            ? findCategory(categories, state.selectedCategoryId)
+            : null;
+          const nextQuestion = currentCat?.questions[0] ?? null;
 
           return {
             categories,
-            selectedQuestionId: state.selectedQuestionId === questionId ? nextQuestion?.id ?? null : state.selectedQuestionId,
-            selectedCategoryId:
-              state.selectedQuestionId === questionId ? nextQuestion?.categoryId ?? state.selectedCategoryId : state.selectedCategoryId,
-            selectedSolutionId:
-              state.selectedQuestionId === questionId ? nextQuestion?.solutions[0]?.id ?? null : state.selectedSolutionId
+            selectedCategoryId: state.selectedCategoryId,
+            selectedQuestionId: nextQuestion?.id ?? null,
+            selectedSolutionId: nextQuestion?.solutions[0]?.id ?? null
           };
         });
       },
@@ -791,7 +816,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           id: tempSolutionId,
           questionId,
           title,
-          language: "none",
+          language: get().defaultLanguage,
           content: "",
           notes: "",
           order,
@@ -892,7 +917,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       updateSolutionLanguage: (solutionId, language) => {
         if (!canEditSolution(get().categories, solutionId)) return;
         set((state) => ({
-          categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, language }))
+          categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, language })),
+          ...(language !== "none" ? { defaultLanguage: language } : {})
         }));
         void workspaceSync.updateSolution(solutionId, { language });
       },
@@ -902,6 +928,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, content }))
         }));
         scheduleSolutionSave(solutionId, content);
+      },
+      updateSolutionNotes: (solutionId, notes) => {
+        if (!canEditSolution(get().categories, solutionId)) return;
+        set((state) => ({
+          categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, notes }))
+        }));
+        scheduleSolutionNotesSave(solutionId, notes);
       },
       toggleFavorite: (questionId) => {
         if (!canEditQuestion(get().categories, questionId)) return;
