@@ -10,6 +10,8 @@ export type MarkdownInsertAction =
   | "codeBlock"
   | "quote"
   | "link"
+  | "image"
+  | "mermaid"
   | "hr";
 
 type InsertResult = {
@@ -93,6 +95,20 @@ export function applyMarkdownInsert(
       const next = text.slice(0, start) + snippet + text.slice(end);
       const urlStart = start + selected.length + 3;
       return { next, selectionStart: urlStart, selectionEnd: urlStart + 3 };
+    }
+    case "image": {
+      const selected = text.slice(start, end) || "alt text";
+      const snippet = `![${selected}](url)`;
+      const next = text.slice(0, start) + snippet + text.slice(end);
+      const urlStart = start + selected.length + 4;
+      return { next, selectionStart: urlStart, selectionEnd: urlStart + 3 };
+    }
+    case "mermaid": {
+      const placeholder = "graph TD\n  A --> B";
+      const block = `\`\`\`mermaid\n${placeholder}\n\`\`\``;
+      const next = text.slice(0, start) + block + text.slice(end);
+      const selectionStart = start + 10; // after "```mermaid\n"
+      return { next, selectionStart, selectionEnd: selectionStart + placeholder.length };
     }
     case "hr": {
       const snippet = "\n\n---\n\n";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -15,8 +15,48 @@ type MarkdownPreviewProps = {
   embedded?: boolean;
 };
 
+function MermaidDiagram({ chart }: { chart: string }) {
+  const rawId = useId();
+  const safeId = `mermaid${rawId.replace(/:/g, "")}`;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    setError(null);
+
+    import("mermaid").then(({ default: mermaid }) => {
+      mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
+      return mermaid.render(safeId, chart);
+    }).then(({ svg }) => {
+      if (containerRef.current) containerRef.current.innerHTML = svg;
+    }).catch((err: unknown) => {
+      setError(err instanceof Error ? err.message : "Invalid diagram");
+    });
+  }, [chart, safeId]);
+
+  if (error) {
+    return (
+      <div className="rounded border border-destructive/20 bg-destructive/5 p-3 font-mono text-xs text-destructive">
+        Mermaid error: {error}
+      </div>
+    );
+  }
+
+  return <div ref={containerRef} className="my-2 flex justify-center overflow-x-auto" />;
+}
+
+const markdownComponents = {
+  code({ className, children, ...props }: React.ComponentPropsWithoutRef<"code"> & { className?: string }) {
+    if (/language-mermaid/.test(className ?? "")) {
+      return <MermaidDiagram chart={String(children).trim()} />;
+    }
+    return <code className={className} {...props}>{children}</code>;
+  }
+};
+
 export function MarkdownPreview({ content, className, fillPane, embedded }: MarkdownPreviewProps) {
-  const legacyHtml = useMemo(() => isLikelyHtml(content), [content]);
+  const legacyHtml = isLikelyHtml(content);
 
   const bodyClass = cn(
     "markdown-preview-body prose prose-sm max-w-none flex-1 prose-pre:bg-transparent prose-pre:p-0 dark:prose-invert",
@@ -29,8 +69,6 @@ export function MarkdownPreview({ content, className, fillPane, embedded }: Mark
     className
   );
 
-  // If legacy mode is selected but the content has HTML-encoded brackets,
-  // it was stored escaped and dangerouslySetInnerHTML would show raw entities.
   const looksEscapedHtml = content.includes("&lt;") || content.includes("&gt;");
 
   if (legacyHtml && !looksEscapedHtml) {
@@ -49,7 +87,6 @@ export function MarkdownPreview({ content, className, fillPane, embedded }: Mark
     );
   }
 
-
   return (
     <div className={shellClass}>
       <HighlightJsTheme />
@@ -59,7 +96,11 @@ export function MarkdownPreview({ content, className, fillPane, embedded }: Mark
         </div>
       ) : null}
       <div className={bodyClass}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeHighlight]}
+          components={markdownComponents}
+        >
           {content || "*Nothing to preview yet.*"}
         </ReactMarkdown>
       </div>
