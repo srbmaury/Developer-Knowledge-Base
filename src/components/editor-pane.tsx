@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
-import { AlertCircle, Bot, CheckCircle2, Copy, FileCode2, Lightbulb, Loader2, MessageSquare, Pin, Plus, Save, Star, Trash2, X } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, Bot, Brain, CheckCircle2, Copy, Download, FileCode2, FolderInput, Lightbulb, Loader2, MessageSquare, MoreHorizontal, Pin, Plus, Save, Star, Trash2, X } from "lucide-react";
 import type { ReviewResult } from "@/lib/ai-answer";
 import { toast } from "sonner";
 import { DIFFICULTIES, LANGUAGES, difficultyBadgeClass } from "@/lib/constants";
@@ -10,6 +10,7 @@ import { CheckCircle, Circle, Clock } from "lucide-react";
 import { workspaceSync } from "@/lib/workspace-sync";
 import { cn } from "@/lib/utils";
 import { getAllQuestions, getCategoryForQuestion, useWorkspaceStore } from "@/store/workspace-store";
+import type { Category } from "@/types/knowledge";
 import type { Difficulty, QuestionStatus, SolutionLanguage, Tag, TagColor } from "@/types/knowledge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -23,6 +24,154 @@ function isNewQuestion(question: Question, solution: Solution) {
   return question.title.trim() === "" && solution.content.trim() === "";
 }
 
+function computeBacklinks(categories: Category[], questionId: string): Question[] {
+  const allQ = getAllQuestions(categories);
+  const target = allQ.find((q) => q.id === questionId);
+  if (!target || !target.title.trim()) return [];
+  const escaped = target.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`\\[\\[${escaped}\\]\\]`, "i");
+  return allQ.filter((q) => {
+    if (q.id === questionId) return false;
+    const haystack = [q.description, ...q.solutions.map((s) => s.content + " " + s.notes)].join(" ");
+    return pattern.test(haystack);
+  });
+}
+
+function flattenCategoriesWithPath(cats: Category[], parentPath = ""): Array<{ id: string; name: string; path: string; canEdit: boolean }> {
+  return cats.flatMap((cat) => {
+    const path = parentPath ? `${parentPath} / ${cat.name}` : cat.name;
+    return [{ id: cat.id, name: cat.name, path: parentPath, canEdit: cat.canEdit }, ...flattenCategoriesWithPath(cat.children, path)];
+  });
+}
+
+function QuestionActionsMenu({ question, canEdit, onExport, onMove, onPin, onStar, onReview }: {
+  question: Question;
+  canEdit: boolean;
+  onExport: () => void;
+  onMove: () => void;
+  onPin: () => void;
+  onStar: () => void;
+  onReview: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  function action(fn: () => void) { fn(); setOpen(false); }
+
+  const items = [
+    { label: "Export to Markdown", icon: Download, onClick: () => action(onExport), always: true },
+    { label: canEdit ? (question.isPinned ? "Unpin" : "Pin") : null, icon: Pin, onClick: () => action(onPin), active: question.isPinned, activeClass: "text-accent", always: false },
+    { label: canEdit ? (question.isFavorite ? "Remove from favourites" : "Add to favourites") : null, icon: Star, onClick: () => action(onStar), active: question.isFavorite, activeClass: "text-amber-500", always: false },
+    { label: canEdit ? (question.srDue ? "Remove from review queue" : "Add to review queue") : null, icon: Brain, onClick: () => action(onReview), active: !!question.srDue, activeClass: "text-primary", always: false },
+    { label: canEdit ? "Move to category" : null, icon: FolderInput, onClick: () => action(onMove), always: false },
+  ].filter((i) => i.always || (canEdit && i.label));
+
+  return (
+    <div ref={ref} className="relative">
+      <Button variant="outline" size="icon" onClick={() => setOpen((o) => !o)} aria-label="More actions" title="More actions">
+        <MoreHorizontal className="h-4 w-4" />
+      </Button>
+      {open ? (
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-52 rounded-lg border bg-card p-1 shadow-lg">
+          {items.map((item) => item.label ? (
+            <button key={item.label} onClick={item.onClick}
+              className={cn("flex w-full items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted", item.active && item.activeClass)}>
+              <item.icon className={cn("h-4 w-4 shrink-0", item.active && item.activeClass)} />
+              {item.label}
+            </button>
+          ) : null)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MoveToCategoryDialog({
+  open,
+  currentCategoryId,
+  categories,
+  onSelect,
+  onClose
+}: {
+  open: boolean;
+  currentCategoryId: string | undefined;
+  categories: Category[];
+  onSelect: (categoryId: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const flat = flattenCategoriesWithPath(categories).filter((c) => c.canEdit && c.id !== currentCategoryId);
+  const filtered = search.trim()
+    ? flat.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || c.path.toLowerCase().includes(search.toLowerCase()))
+    : flat;
+
+  useEffect(() => { if (!open) setSearch(""); }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogTitle className="text-base font-semibold">Move to category</DialogTitle>
+        <Input
+          autoFocus
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search categories…"
+          className="mb-1"
+        />
+        <div className="max-h-64 overflow-y-auto space-y-0.5 rounded-md border p-1">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-4 text-center text-sm text-muted-foreground">No categories found</p>
+          ) : (
+            filtered.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => { onSelect(c.id); onClose(); }}
+                className="flex w-full flex-col rounded-md px-3 py-2 text-left text-sm hover:bg-muted"
+              >
+                <span className="font-medium">{c.name}</span>
+                {c.path ? <span className="text-xs text-muted-foreground">{c.path}</span> : null}
+              </button>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function exportQuestionToMarkdown(question: Question) {
+  const lines: string[] = [`# ${question.title || "Untitled question"}`, ""];
+  if (question.description) {
+    lines.push(question.description, "");
+  }
+  const meta: string[] = [`**Difficulty:** ${question.difficulty}`];
+  if (question.tags.length > 0) meta.push(`**Tags:** ${question.tags.map((t) => t.name).join(", ")}`);
+  lines.push(...meta, "");
+
+  for (const sol of question.solutions) {
+    lines.push("---", "", `## ${sol.title}`, "");
+    if (sol.content) { lines.push(sol.content, ""); }
+    if (sol.notes) { lines.push("### Notes", "", sol.notes, ""); }
+  }
+
+  const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${(question.title || "note").replace(/[/\\?%*:|"<>]/g, "-")}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function EditorPane() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [reviewingSolutionId, setReviewingSolutionId] = useState<string | null>(null);
@@ -30,6 +179,7 @@ export function EditorPane() {
   const [reviewedSolutionIds, setReviewedSolutionIds] = useState(new Set<string>());
   const [solutionToDelete, setSolutionToDelete] = useState<Solution | null>(null);
   const [contentView, setContentView] = useState<MarkdownViewMode>("preview");
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const previousQuestionId = useRef<string | null>(null);
   const {
     categories,
@@ -51,12 +201,19 @@ export function EditorPane() {
     saveStatus,
     updateSolutionAiReview,
     updateQuestionStatus,
+    enrollInReview,
+    unenrollFromReview,
+    moveQuestion,
     allTags,
     addTagToQuestion,
     removeTagFromQuestion,
     createTag
   } = useWorkspaceStore();
   const question = getAllQuestions(categories).find((item) => item.id === selectedQuestionId);
+  const backlinks = useMemo(
+    () => (question ? computeBacklinks(categories, question.id) : []),
+    [categories, question]
+  );
   const solution = question?.solutions.find((item) => item.id === selectedSolutionId) ?? question?.solutions[0];
   const selectedCategory = getCategoryForQuestion(categories, question?.id);
   const canEdit = selectedCategory?.canEdit ?? false;
@@ -64,6 +221,7 @@ export function EditorPane() {
   const isCreatingSolution = Boolean(question && creatingSolutionQuestionIds.includes(question.id));
   const isCreatingQuestion = Boolean(selectedQuestionId && selectedQuestionId.startsWith("temp-question"));
 
+  const articleRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
@@ -81,6 +239,9 @@ export function EditorPane() {
     if (previousQuestionId.current !== selectedQuestionId) {
       previousQuestionId.current = selectedQuestionId;
       setJustReviewedSolutionId(null);
+      // Scroll the editor pane back to the top when the selected question changes
+      const scrollEl = articleRef.current?.closest('[data-scroll="editor"]') as HTMLElement | null;
+      if (scrollEl) scrollEl.scrollTop = 0;
       setContentView(isNewQuestion(question, solution) ? "editor" : "preview");
 
       if (isNewQuestion(question, solution)) {
@@ -207,7 +368,7 @@ export function EditorPane() {
   }
 
   return (
-    <article className="min-w-0">
+    <article ref={articleRef} className="min-w-0">
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8">
         <div className="flex flex-col gap-4 border-b pb-5">
         <div className="flex flex-col gap-3">
@@ -252,37 +413,15 @@ export function EditorPane() {
                 ))}
               </div>
 
-              {canEdit ? (
-                <>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => toggleImportant(question.id)}
-                    aria-label="Mark important"
-                  >
-                    <Pin
-                      className={cn(
-                        "h-4 w-4",
-                        question.isPinned && "fill-accent text-accent"
-                      )}
-                    />
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => toggleFavorite(question.id)}
-                    aria-label="Toggle favorite"
-                  >
-                    <Star
-                      className={cn(
-                        "h-4 w-4",
-                        question.isFavorite && "fill-amber-400 text-amber-400"
-                      )}
-                    />
-                  </Button>
-                </>
-              ) : null}
+              <QuestionActionsMenu
+                question={question}
+                canEdit={canEdit}
+                onExport={() => exportQuestionToMarkdown(question)}
+                onMove={() => setMoveDialogOpen(true)}
+                onPin={() => toggleImportant(question.id)}
+                onStar={() => toggleFavorite(question.id)}
+                onReview={() => question.srDue ? unenrollFromReview(question.id) : enrollInReview(question.id)}
+              />
             </div>
           </div>
 
@@ -514,6 +653,37 @@ export function EditorPane() {
           ))}
         </Tabs>
       </div>
+
+      {backlinks.length > 0 ? (
+        <div className="mx-auto w-full max-w-6xl px-4 pb-8 sm:px-8">
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="text-base leading-none">↩</span>
+              Referenced by {backlinks.length} {backlinks.length === 1 ? "note" : "notes"}
+            </p>
+            <div className="space-y-2">
+              {backlinks.map((bq) => (
+                <button
+                  key={bq.id}
+                  type="button"
+                  onClick={() => useWorkspaceStore.getState().selectQuestion(bq.id)}
+                  className="block w-full rounded-md px-3 py-2.5 text-left transition-colors hover:bg-background"
+                >
+                  <p className="text-sm font-medium text-foreground">{bq.title || "Untitled"}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <MoveToCategoryDialog
+        open={moveDialogOpen}
+        currentCategoryId={selectedCategory?.id}
+        categories={categories}
+        onSelect={(targetId) => { if (question) moveQuestion(question.id, targetId); }}
+        onClose={() => setMoveDialogOpen(false)}
+      />
 
       <Dialog open={solutionToDelete !== null} onOpenChange={(open) => { if (!open) setSolutionToDelete(null); }}>
         <DialogContent className="max-w-sm">

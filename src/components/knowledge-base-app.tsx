@@ -5,11 +5,14 @@ import { useRouter } from "next/navigation";
 import { useHotkeys, useSequenceHotkey, useSingleHotkey } from "@/components/use-hotkeys";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { CommandPalette } from "@/components/command-palette";
+import { QuickCaptureModal } from "@/components/quick-capture-modal";
 import { EditorPane } from "@/components/editor-pane";
 import { QuestionList } from "@/components/question-list";
 import { Sidebar } from "@/components/sidebar";
+import { TopNav } from "@/components/top-nav";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { getCategoryById, useWorkspaceStore } from "@/store/workspace-store";
 import type { Category, Tag } from "@/types/knowledge";
 import { ListCollapse, Loader2, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Search } from "lucide-react";
@@ -18,16 +21,12 @@ export function KnowledgeBaseApp({
   initialCategories,
   initialTags,
   userEmail,
-  workspaceTitle = "Developer Knowledge Base",
-  workspaceSubtitle = "Your private workspace",
   canCreateRootCategory = true,
   emptyMessage
 }: {
   initialCategories: Category[];
   initialTags?: Tag[];
   userEmail: string | null;
-  workspaceTitle?: string;
-  workspaceSubtitle?: string;
   canCreateRootCategory?: boolean;
   emptyMessage?: string;
 }) {
@@ -37,14 +36,19 @@ export function KnowledgeBaseApp({
     setInitialData,
     setAllTags,
     setCommandOpen,
+    setShortcutsOpen,
+    shortcutsOpen,
     selectedCategoryId,
     addQuestion,
     creatingQuestionCategoryIds
   } = useWorkspaceStore();
   const [categoriesOpen, setCategoriesOpen] = useState(true);
   const [questionsOpen, setQuestionsOpen] = useState(true);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [isMac, setIsMac] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [focusHintVisible, setFocusHintVisible] = useState(false);
+  const focusHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [captureOpen, setCaptureOpen] = useState(false);
   useEffect(() => { setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.platform)); }, []);
   const [categoriesWidth, setCategoriesWidth] = useState(288);
   const [questionsWidth, setQuestionsWidth] = useState(320);
@@ -71,6 +75,19 @@ export function KnowledgeBaseApp({
   useHotkeys("meta+k", () => setCommandOpen(true));
   useSingleHotkey("?", () => setShortcutsOpen(true));
 
+  useSingleHotkey("n", () => setCaptureOpen(true));
+  useSingleHotkey("f", () => {
+    setFocusMode((f) => {
+      const next = !f;
+      if (next) {
+        if (focusHintTimer.current) clearTimeout(focusHintTimer.current);
+        setFocusHintVisible(true);
+        focusHintTimer.current = setTimeout(() => setFocusHintVisible(false), 2500);
+      }
+      return next;
+    });
+  });
+
   // g → h/m/s/p navigation (GitHub-style, ignored when an input is focused)
   useSequenceHotkey("g", "h", () => router.push("/"));
   useSequenceHotkey("g", "m", () => router.push("/most-viewed"));
@@ -83,6 +100,7 @@ export function KnowledgeBaseApp({
   );
   const selectedCategory = getCategoryById(categories, selectedCategoryId);
   const canEditSelectedCategory = selectedCategory?.canEdit ?? false;
+
   const isCreatingQuestion = Boolean(
     selectedCategoryId && creatingQuestionCategoryIds.includes(selectedCategoryId)
   );
@@ -143,14 +161,13 @@ export function KnowledgeBaseApp({
 
   return (
     <TooltipProvider>
-      <main ref={containerRef} className="flex h-screen overflow-hidden bg-background/85 text-foreground">
-        {categoriesOpen ? (
+      <div className="flex h-screen flex-col overflow-hidden bg-background/85 text-foreground">
+        {!focusMode ? <TopNav userEmail={userEmail} /> : null}
+        <main ref={containerRef} className="flex flex-1 min-h-0 overflow-hidden">
+        {!focusMode && categoriesOpen ? (
           <>
             <div className="hidden h-full shrink-0 overflow-hidden md:flex" style={{ width: `${categoriesWidth}px` }}>
               <Sidebar
-                userEmail={userEmail}
-                workspaceTitle={workspaceTitle}
-                workspaceSubtitle={workspaceSubtitle}
                 canCreateRootCategory={canCreateRootCategory}
                 onCollapse={() => setCategoriesOpen(false)}
               />
@@ -164,7 +181,7 @@ export function KnowledgeBaseApp({
             />
           </>
         ) : null}
-        {questionsOpen ? (
+        {!focusMode && questionsOpen ? (
           <>
             <section className="hidden h-full min-w-0 shrink-0 overflow-hidden border-r bg-background/70 lg:flex lg:flex-col" style={{ width: `${questionsWidth}px` }}>
               <QuestionList onCollapse={() => setQuestionsOpen(false)} emptyMessage={emptyMessage} />
@@ -179,13 +196,19 @@ export function KnowledgeBaseApp({
           </>
         ) : null}
         <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur-xl sm:px-5">
+          {focusHintVisible ? (
+            <div className="pointer-events-none absolute bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border bg-card/90 px-4 py-2 text-xs text-muted-foreground shadow-lg backdrop-blur-sm transition-opacity duration-500">
+              Press <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">F</kbd> to exit focus mode
+            </div>
+          ) : null}
+          <header className={cn("sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur-xl sm:px-5", focusMode && "hidden")}>
             <Button
               variant="ghost"
               size="icon"
               className="hidden md:inline-flex"
               onClick={() => setCategoriesOpen((open) => !open)}
-              aria-label={categoriesOpen ? "Collapse categories sidebar" : "Expand categories sidebar"}
+              aria-label={categoriesOpen ? "Collapse sidebar" : "Expand sidebar"}
+              title={categoriesOpen ? "Collapse sidebar" : "Expand sidebar"}
             >
               <PanelLeftOpen className="h-4 w-4" />
             </Button>
@@ -194,11 +217,12 @@ export function KnowledgeBaseApp({
               size="icon"
               className="hidden lg:inline-flex"
               onClick={() => setQuestionsOpen((open) => !open)}
-              aria-label={questionsOpen ? "Collapse questions sidebar" : "Expand questions sidebar"}
+              aria-label={questionsOpen ? "Collapse question list" : "Expand question list"}
+              title={questionsOpen ? "Collapse question list" : "Expand question list"}
             >
               {questionsOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
             </Button>
-            <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Questions">
+            <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Questions" title="Questions">
               <ListCollapse className="h-4 w-4" />
             </Button>
             <button
@@ -221,17 +245,20 @@ export function KnowledgeBaseApp({
               </Button>
             ) : null}
           </header>
-          <div className="grid min-h-0 shrink-0 grid-cols-1 lg:hidden">
-            <div className="max-h-72 overflow-hidden border-b bg-background/70 p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">{selectedCategoryName}</p>
-              <QuestionList compact emptyMessage={emptyMessage} />
+          {!focusMode ? (
+            <div className="grid min-h-0 shrink-0 grid-cols-1 lg:hidden">
+              <div className="max-h-72 overflow-hidden border-b bg-background/70 p-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">{selectedCategoryName}</p>
+                <QuestionList compact emptyMessage={emptyMessage} />
+              </div>
             </div>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+          ) : null}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain" data-scroll="editor">
             <EditorPane />
           </div>
         </section>
         <CommandPalette />
+        <QuickCaptureModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
         <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
           <DialogContent className="max-w-sm">
             <DialogTitle className="text-base font-semibold">Keyboard shortcuts</DialogTitle>
@@ -243,6 +270,8 @@ export function KnowledgeBaseApp({
                 { keys: ["g", "s"], label: "Go to Starred" },
                 { keys: ["g", "p"], label: "Go to Public" },
                 { keys: ["?"], label: "Show shortcuts" },
+                { keys: ["F"], label: "Toggle focus mode" },
+                { keys: ["N"], label: "Quick capture" },
               ].map(({ keys, label }) => (
                 <div key={label} className="flex items-center justify-between gap-4 rounded-md px-2 py-1.5 hover:bg-muted">
                   <span className="text-muted-foreground">{label}</span>
@@ -267,7 +296,8 @@ export function KnowledgeBaseApp({
             {isCreatingQuestion ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className="h-5 w-5" />}
           </Button>
         ) : null}
-      </main>
+        </main>
+      </div>
     </TooltipProvider>
   );
 }

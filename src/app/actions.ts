@@ -257,6 +257,101 @@ export async function updateQuestionAction(input: {
   return { ok: true as const };
 }
 
+export async function bulkSaveAction(input: {
+  questions?: Array<{ questionId: string; title?: string; description?: string; difficulty?: Difficulty }>;
+  solutions?: Array<{
+    solutionId: string;
+    title?: string;
+    language?: SolutionLanguage;
+    content?: string;
+    notes?: string;
+    aiReview?: ReviewResult | null;
+  }>;
+}) {
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return unauthorized();
+  }
+
+  const questionPatches = input.questions ?? [];
+  const solutionPatches = input.solutions ?? [];
+
+  const questionIds = [...new Set(questionPatches.map((patch) => patch.questionId))];
+  const solutionIds = [...new Set(solutionPatches.map((patch) => patch.solutionId))];
+
+  const ownedQuestions = questionIds.length
+    ? await prisma.question.findMany({
+        where: { id: { in: questionIds }, category: { userId } },
+        select: { id: true }
+      })
+    : [];
+
+  const ownedSolutions = solutionIds.length
+    ? await prisma.solution.findMany({
+        where: { id: { in: solutionIds }, question: { category: { userId } } },
+        select: { id: true, questionId: true }
+      })
+    : [];
+
+  if (ownedQuestions.length !== questionIds.length || ownedSolutions.length !== solutionIds.length) {
+    return { ok: false as const, message: "Some items could not be saved." };
+  }
+
+  const solutionQuestionIds = [...new Set(ownedSolutions.map((solution) => solution.questionId))];
+
+  const updates: Array<Prisma.PrismaPromise<unknown>> = [];
+
+  for (const patch of questionPatches) {
+    const data: Record<string, unknown> = {};
+    if (patch.title !== undefined) data.title = patch.title.trim();
+    if (patch.description !== undefined) data.description = patch.description;
+    if (patch.difficulty !== undefined) data.difficulty = patch.difficulty;
+    if (Object.keys(data).length === 0) continue;
+    updates.push(
+      prisma.question.update({
+        where: { id: patch.questionId },
+        data
+      })
+    );
+  }
+
+  for (const patch of solutionPatches) {
+    const data: Record<string, unknown> = {};
+    if (patch.title !== undefined) data.title = patch.title.trim();
+    if (patch.language !== undefined) data.language = patch.language;
+    if (patch.content !== undefined) data.content = patch.content;
+    if (patch.notes !== undefined) data.notes = patch.notes;
+    if (patch.aiReview !== undefined) {
+      data.aiReview = patch.aiReview === null ? Prisma.DbNull : patch.aiReview;
+    }
+    if (Object.keys(data).length === 0) continue;
+    updates.push(
+      prisma.solution.update({
+        where: { id: patch.solutionId },
+        data
+      })
+    );
+  }
+
+  for (const questionId of solutionQuestionIds) {
+    updates.push(
+      prisma.question.update({
+        where: { id: questionId },
+        data: { updatedAt: new Date() }
+      })
+    );
+  }
+
+  if (updates.length > 0) {
+    await prisma.$transaction(updates);
+  }
+
+  revalidateWorkspace(userId);
+  return { ok: true as const };
+}
+
 export async function deleteQuestionAction(input: { questionId: string }) {
   let userId: string;
   try {
@@ -489,4 +584,49 @@ export async function submitSpacedReviewAction(input: {
   });
   revalidateWorkspace(userId);
   return { ok: true as const, next };
+}
+
+export async function moveQuestionAction(input: { questionId: string; targetCategoryId: string }) {
+  let userId: string;
+  try { userId = await requireUserId(); } catch { return unauthorized(); }
+  const question = await getOwnedQuestion(input.questionId, userId);
+  if (!question) return { ok: false as const, message: "Question not found." };
+  const target = await getOwnedCategory(input.targetCategoryId, userId);
+  if (!target) return { ok: false as const, message: "Target category not found." };
+  const order = await prisma.question.count({ where: { categoryId: input.targetCategoryId } });
+  await prisma.question.update({
+    where: { id: input.questionId },
+    data: { categoryId: input.targetCategoryId, order, isPinned: false }
+  });
+  revalidateWorkspace(userId);
+  return { ok: true as const };
+}
+
+export async function enrollInReviewAction(input: { questionId: string }) {
+  let userId: string;
+  try { userId = await requireUserId(); } catch { return unauthorized(); }
+  const question = await getOwnedQuestion(input.questionId, userId);
+  if (!question) return { ok: false as const, message: "Question not found." };
+
+  const due = new Date(); // due immediately
+  await prisma.question.update({
+    where: { id: input.questionId },
+    data: { srDue: due }
+  });
+  revalidateWorkspace(userId);
+  return { ok: true as const, srDue: due.toISOString() };
+}
+
+export async function unenrollFromReviewAction(input: { questionId: string }) {
+  let userId: string;
+  try { userId = await requireUserId(); } catch { return unauthorized(); }
+  const question = await getOwnedQuestion(input.questionId, userId);
+  if (!question) return { ok: false as const, message: "Question not found." };
+
+  await prisma.question.update({
+    where: { id: input.questionId },
+    data: { srDue: null, srInterval: 1, srEase: 2.5, srReviews: 0 }
+  });
+  revalidateWorkspace(userId);
+  return { ok: true as const };
 }

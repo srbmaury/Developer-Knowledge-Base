@@ -1,5 +1,6 @@
 import {
   addTagToQuestionAction,
+  bulkSaveAction,
   createCategoryAction,
   createQuestionAction,
   createSolutionAction,
@@ -8,9 +9,12 @@ import {
   deleteQuestionAction,
   deleteSolutionAction,
   deleteTagAction,
+  moveQuestionAction,
   reorderCategoriesAction,
   reorderQuestionsAction,
   removeTagFromQuestionAction,
+  enrollInReviewAction,
+  unenrollFromReviewAction,
   submitSpacedReviewAction,
   updateCategoryAction,
   updateCategoryVisibilityAction,
@@ -20,6 +24,9 @@ import {
 } from "@/app/actions";
 import type { Difficulty, QuestionStatus, SolutionLanguage, TagColor } from "@/types/knowledge";
 import type { ReviewResult } from "@/lib/ai-answer";
+
+type BulkSaveQuestionPatch = { questionId: string; title?: string; description?: string; difficulty?: Difficulty };
+type BulkSaveSolutionPatch = { solutionId: string; title?: string; language?: SolutionLanguage; content?: string; notes?: string; aiReview?: ReviewResult | null };
 import type { SRGrade } from "@/lib/spaced-repetition";
 
 type QuestionPatch = {
@@ -46,6 +53,9 @@ export const workspaceSync = {
 
   updateQuestion: (questionId: string, patch: QuestionPatch) => updateQuestionAction({ questionId, ...patch }),
 
+  bulkSave: (questions?: BulkSaveQuestionPatch[], solutions?: BulkSaveSolutionPatch[]) =>
+    bulkSaveAction({ questions, solutions }),
+
   deleteQuestion: (questionId: string) => deleteQuestionAction({ questionId }),
 
   reorderCategories: (parentId: string | null, categoryIds: string[]) =>
@@ -71,5 +81,11 @@ export const workspaceSync = {
   updateQuestionStatus: (questionId: string, status: QuestionStatus) =>
     updateQuestionStatusAction({ questionId, status }),
   submitSpacedReview: (questionId: string, grade: SRGrade) =>
-    submitSpacedReviewAction({ questionId, grade })
+    submitSpacedReviewAction({ questionId, grade }),
+  moveQuestion: (questionId: string, targetCategoryId: string) =>
+    moveQuestionAction({ questionId, targetCategoryId }),
+  enrollInReview: (questionId: string) =>
+    enrollInReviewAction({ questionId }),
+  unenrollFromReview: (questionId: string) =>
+    unenrollFromReviewAction({ questionId })
 };

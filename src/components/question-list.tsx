@@ -19,7 +19,7 @@ import {
   verticalListSortingStrategy
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Filter, GripVertical, Loader2, PanelRightClose, Pin, Plus, Star, Trash2, X } from "lucide-react";
+import { ArrowUpDown, Check, CheckSquare, Download, Filter, FolderInput, GripVertical, Loader2, MoreHorizontal, PanelRightClose, Pin, Plus, Square, Star, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { DIFFICULTIES, difficultyBadgeClass } from "@/lib/constants";
 import { TAG_COLOR_CLASSES, TAG_DOT_CLASSES } from "@/lib/tag-colors";
@@ -33,7 +33,136 @@ import {
   sortQuestionsForDisplay,
   useWorkspaceStore
 } from "@/store/workspace-store";
-import type { Question, QuestionStatus, Tag } from "@/types/knowledge";
+import type { Category, Question, QuestionStatus, Tag } from "@/types/knowledge";
+import { parseMarkdownFile, exportWorkspaceToZip } from "@/lib/workspace-io";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+
+function flatCategoryList(cats: Category[], parentPath = ""): Array<{ id: string; name: string; path: string; canEdit: boolean }> {
+  return cats.flatMap((cat) => {
+    const full = parentPath ? `${parentPath} / ${cat.name}` : cat.name;
+    return [{ id: cat.id, name: cat.name, path: parentPath, canEdit: cat.canEdit }, ...flatCategoryList(cat.children, full)];
+  });
+}
+
+
+function CategoryPickerDialog({
+  open,
+  excludeId,
+  categories,
+  onSelect,
+  onClose
+}: {
+  open: boolean;
+  excludeId?: string | null;
+  categories: Category[];
+  onSelect: (categoryId: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const flat = flatCategoryList(categories).filter((c) => c.canEdit && c.id !== excludeId);
+  const filtered = search.trim()
+    ? flat.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
+    : flat;
+  useEffect(() => { if (!open) setSearch(""); }, [open]);
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogTitle className="text-base font-semibold">Move to category</DialogTitle>
+        <Input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search categories…" className="mb-1" />
+        <div className="max-h-64 overflow-y-auto space-y-0.5 rounded-md border p-1">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-4 text-center text-sm text-muted-foreground">No categories found</p>
+          ) : filtered.map((c) => (
+            <button key={c.id} onClick={() => { onSelect(c.id); onClose(); }}
+              className="flex w-full flex-col rounded-md px-3 py-2 text-left text-sm hover:bg-muted">
+              <span className="font-medium">{c.name}</span>
+              {c.path ? <span className="text-xs text-muted-foreground">{c.path}</span> : null}
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function isInputFocused() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
+}
+
+const SORT_OPTIONS = [
+  { value: "default", label: "Default" },
+  { value: "title-asc", label: "Title A–Z" },
+  { value: "title-desc", label: "Title Z–A" },
+  { value: "newest", label: "Recently updated" },
+  { value: "oldest", label: "Oldest first" },
+] as const;
+type SortOption = typeof SORT_OPTIONS[number]["value"];
+
+function sortWithinGroup(qs: Question[], sort: SortOption): Question[] {
+  if (sort === "default") return qs;
+  const sorted = [...qs];
+  switch (sort) {
+    case "title-asc": return sorted.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    case "title-desc": return sorted.sort((a, b) => (b.title || "").localeCompare(a.title || ""));
+    case "newest": return sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    case "oldest": return sorted.sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
+  }
+}
+
+function SortDropdown({ sort, onChange }: { sort: SortOption; onChange: (s: SortOption) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const active = sort !== "default";
+  const activeLabel = SORT_OPTIONS.find((o) => o.value === sort)?.label;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all",
+          active
+            ? "bg-primary/10 text-primary ring-2 ring-primary ring-offset-1"
+            : "bg-muted text-muted-foreground hover:text-foreground"
+        )}
+      >
+        <ArrowUpDown className="h-3 w-3" />
+        {active ? activeLabel : "Sort"}
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-full z-50 mt-1 min-w-44 rounded-lg border bg-card p-1 shadow-lg">
+          {SORT_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => { onChange(option.value); setOpen(false); }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+                sort === option.value ? "bg-primary/10 text-primary" : "hover:bg-muted"
+              )}
+            >
+              <span className="flex-1 text-left font-medium">{option.label}</span>
+              {sort === option.value ? <span className="text-[10px] font-bold">✓</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const STATUS_LABELS: Record<QuestionStatus, string> = {
   NOT_STARTED: "Not started",
@@ -131,22 +260,29 @@ function stopDragPointer(event: React.PointerEvent) {
   event.stopPropagation();
 }
 
+
 function SortableQuestionCard({
   question,
   compact,
   selected,
+  bulkSelected,
+  bulkMode,
   canEdit,
   categoryLabel,
   onSelect,
-  onDelete
+  onDelete,
+  onBulkToggle
 }: {
   question: Question;
   compact: boolean;
   selected: boolean;
+  bulkSelected?: boolean;
+  bulkMode?: boolean;
   canEdit: boolean;
   categoryLabel?: string;
   onSelect: () => void;
   onDelete: () => void;
+  onBulkToggle?: () => void;
 }) {
   const isTemp = question.id.startsWith("temp-");
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -169,7 +305,13 @@ function SortableQuestionCard({
       {...(canEdit ? attributes : {})}
       {...(canEdit ? listeners : {})}
     >
-      {canEdit ? (
+      {bulkMode ? (
+        <div className="absolute left-2 top-3 flex h-7 w-5 items-center justify-center" onClick={(e) => { e.stopPropagation(); onBulkToggle?.(); }}>
+          {bulkSelected
+            ? <CheckSquare className="h-4 w-4 text-primary" />
+            : <Square className="h-4 w-4 text-muted-foreground" />}
+        </div>
+      ) : canEdit ? (
         <div
           className="absolute left-2 top-3 flex h-7 w-5 cursor-grab items-center justify-center text-muted-foreground/50 group-hover:text-muted-foreground active:cursor-grabbing"
           aria-hidden
@@ -183,11 +325,15 @@ function SortableQuestionCard({
         tabIndex={0}
         className="w-full cursor-pointer pl-7 text-left"
         title={`${question.title || "Untitled question"}${question.description ? ` - ${question.description}` : ""}`}
-        onClick={onSelect}
+        onClick={bulkMode ? onBulkToggle : onSelect}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            onSelect();
+            if (bulkMode) {
+              onBulkToggle?.();
+            } else {
+              onSelect();
+            }
           }
         }}
       >
@@ -247,6 +393,8 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
     selectQuestion,
     addQuestion,
     deleteQuestion,
+    moveQuestion,
+    enrollInReview,
     reorderQuestions,
     creatingQuestionCategoryIds,
     allTags,
@@ -261,6 +409,22 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
   const isGlobalMode = showAllCategories || !selectedCategoryId;
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const deleteTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const [sortOption, setSortOption] = useState<SortOption>("default");
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedBulkIds, setSelectedBulkIds] = useState<Set<string>>(new Set());
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const headerMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!headerMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(e.target as Node)) setHeaderMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [headerMenuOpen]);
 
   useEffect(() => {
     const timers = deleteTimers.current;
@@ -289,6 +453,63 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
     });
   }
 
+  async function handleImportFile(file: File) {
+    if (!selectedCategoryId || !canEditSelectedCategory) return;
+    const text = await file.text();
+    const { title, description, difficulty, tagNames, content } = parseMarkdownFile(file.name, text);
+    await addQuestion(selectedCategoryId, title);
+
+    const state = useWorkspaceStore.getState();
+    const questionId = state.selectedQuestionId;
+    const solutionId = state.selectedSolutionId;
+
+    if (questionId && !questionId.startsWith("temp-")) {
+      if (description) state.updateQuestionDescription(questionId, description);
+      if (difficulty) state.updateQuestionDifficulty(questionId, difficulty);
+      for (const name of tagNames) {
+        const tag = state.allTags.find((t) => t.name.toLowerCase() === name.toLowerCase());
+        if (tag) state.addTagToQuestion(questionId, tag.id);
+      }
+    }
+    if (solutionId && !solutionId.startsWith("temp-")) {
+      state.updateSolutionContent(solutionId, content);
+    }
+  }
+
+  function toggleBulkSelect(id: string) {
+    setSelectedBulkIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function handleBulkDelete() {
+    for (const id of selectedBulkIds) {
+      const q = questions.find((q) => q.id === id);
+      if (q) handleDeleteQuestion(q);
+    }
+    setSelectedBulkIds(new Set());
+    setBulkMode(false);
+  }
+
+  function handleBulkEnroll() {
+    for (const id of selectedBulkIds) enrollInReview(id);
+    setSelectedBulkIds(new Set());
+    setBulkMode(false);
+    toast.success(`Enrolled ${selectedBulkIds.size} question${selectedBulkIds.size === 1 ? "" : "s"} in review`);
+  }
+
+  function handleBulkMove(targetCategoryId: string) {
+    for (const id of selectedBulkIds) moveQuestion(id, targetCategoryId);
+    setSelectedBulkIds(new Set());
+    setBulkMode(false);
+  }
+
   const allFilteredQuestions = sortQuestionsForDisplay(
     getAllQuestions(categories).filter((question) =>
       isGlobalMode || !selectedCategoryId || question.categoryId === selectedCategoryId
@@ -298,13 +519,29 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
     .filter((q) => !pendingDeleteIds.has(q.id))
     .filter((q) => !filterStatus || (q.status ?? "NOT_STARTED") === filterStatus)
     .filter((q) => filterTagIds.length === 0 || filterTagIds.every((id) => q.tags.some((t) => t.id === id)));
-  const pinnedQuestions = questions.filter((question) => question.isPinned);
-  const unpinnedQuestions = questions.filter((question) => !question.isPinned);
+  const pinnedQuestions = sortWithinGroup(questions.filter((question) => question.isPinned), sortOption);
+  const unpinnedQuestions = sortWithinGroup(questions.filter((question) => !question.isPinned), sortOption);
   const selectedCategory = getCategoryById(categories, selectedCategoryId);
   const canEditSelectedCategory = selectedCategory?.canEdit ?? false;
   const isCreatingQuestion = Boolean(
     selectedCategoryId && creatingQuestionCategoryIds.includes(selectedCategoryId)
   );
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      if (isInputFocused()) return;
+      if (questions.length === 0) return;
+      e.preventDefault();
+      const idx = questions.findIndex((q) => q.id === selectedQuestionId);
+      const next = idx < 0 ? 0 : e.key === "ArrowDown"
+        ? Math.min(idx + 1, questions.length - 1)
+        : Math.max(idx - 1, 0);
+      if (idx !== next) selectQuestion(questions[next].id);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [questions, selectedQuestionId, selectQuestion]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -344,10 +581,13 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
         question={question}
         compact={compact}
         selected={selectedQuestionId === question.id}
+        bulkMode={bulkMode}
+        bulkSelected={selectedBulkIds.has(question.id)}
         canEdit={canEdit}
         categoryLabel={opts?.global ? category?.name : undefined}
         onSelect={isTemp ? () => {} : () => selectQuestion(question.id)}
         onDelete={() => handleDeleteQuestion(question)}
+        onBulkToggle={() => toggleBulkSelect(question.id)}
       />
     );
   }
@@ -368,30 +608,73 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              {selectedCategoryId ? (
-                <label
-                  className="flex cursor-pointer select-none items-center gap-1.5 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title="Show questions from all categories"
-                >
-                  <input
-                    type="checkbox"
-                    checked={showAllCategories}
-                    onChange={(e) => setShowAllCategories(e.target.checked)}
-                    className="h-3 w-3 cursor-pointer accent-primary"
-                  />
-                  All categories
-                </label>
-              ) : null}
               {canEditSelectedCategory ? (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  disabled={isCreatingQuestion}
-                  onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
-                  aria-label="Add question"
-                >
-                  {isCreatingQuestion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                </Button>
+                <>
+                  <div ref={headerMenuRef} className="relative">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setHeaderMenuOpen((o) => !o)}
+                      aria-label="More options"
+                      title="More options"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                    {headerMenuOpen ? (
+                      <div className="absolute right-0 top-full z-50 mt-1 min-w-56 rounded-lg border bg-card p-1 shadow-lg">
+                        <button
+                          onClick={() => { setBulkMode((b) => !b); setSelectedBulkIds(new Set()); setHeaderMenuOpen(false); }}
+                          className={cn("flex w-full items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm hover:bg-muted", bulkMode && "text-primary font-medium")}
+                        >
+                          <CheckSquare className="h-4 w-4" />
+                          {bulkMode ? "Exit select mode" : "Select multiple"}
+                        </button>
+                        <button
+                          onClick={() => { importInputRef.current?.click(); setHeaderMenuOpen(false); }}
+                          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm hover:bg-muted"
+                        >
+                          <Upload className="h-4 w-4" />
+                          Import Markdown
+                        </button>
+                        <button
+                          onClick={() => {
+                            void exportWorkspaceToZip(categories, {
+                              selectedCategoryId: isGlobalMode ? null : selectedCategoryId,
+                              filterStatus,
+                              filterTagIds
+                            });
+                            setHeaderMenuOpen(false);
+                          }}
+                          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm hover:bg-muted"
+                        >
+                          <Download className="h-4 w-4" />
+                          Export current view
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".md,.markdown,text/markdown"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleImportFile(file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    disabled={isCreatingQuestion}
+                    onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
+                    aria-label="Add question"
+                    title="Add question"
+                  >
+                    {isCreatingQuestion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  </Button>
+                </>
               ) : null}
               {onCollapse ? (
                 <Button size="icon" variant="ghost" onClick={onCollapse} aria-label="Collapse questions sidebar">
@@ -401,6 +684,19 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 border-b px-3 py-2">
+            {selectedCategoryId ? (
+              <button
+                onClick={() => setShowAllCategories((v) => !v)}
+                className={cn(
+                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all",
+                  showAllCategories
+                    ? "bg-primary/10 text-primary ring-2 ring-primary ring-offset-1"
+                    : "bg-muted text-muted-foreground opacity-60 hover:opacity-100"
+                )}
+              >
+                All categories
+              </button>
+            ) : null}
             {(["NOT_STARTED", "IN_PROGRESS", "SOLVED"] as QuestionStatus[]).map((s) => {
               const active = filterStatus === s;
               const count = allFilteredQuestions.filter((q) => (q.status ?? "NOT_STARTED") === s).length;
@@ -425,15 +721,52 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
               toggleTagFilter={toggleTagFilter}
               clearTagFilter={clearTagFilter}
             />
-            {(filterTagIds.length > 0 || filterStatus) ? (
+            <SortDropdown sort={sortOption} onChange={setSortOption} />
+            {(filterTagIds.length > 0 || filterStatus || sortOption !== "default") ? (
               <button
-                onClick={() => { clearTagFilter(); setStatusFilter(null); }}
+                onClick={() => { clearTagFilter(); setStatusFilter(null); setSortOption("default"); }}
                 className="inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
               >
                 <X className="h-3 w-3" /> Clear all
               </button>
             ) : null}
           </div>
+          {bulkMode && selectedBulkIds.size > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5 border-b bg-primary/5 px-3 py-2">
+              <span className="text-xs font-medium text-primary">{selectedBulkIds.size} selected</span>
+              <div className="ml-auto flex items-center gap-1">
+                <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs"
+                  onClick={() => setSelectedBulkIds(
+                    new Set(questions.filter((q) => !q.id.startsWith("temp-")).map((q) => q.id))
+                  )}>
+                  <Check className="h-3 w-3" /> All
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs"
+                  onClick={() => setBulkMoveOpen(true)}>
+                  <FolderInput className="h-3 w-3" /> Move
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs text-primary"
+                  onClick={handleBulkEnroll}>
+                  Enroll
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs text-destructive"
+                  onClick={handleBulkDelete}>
+                  <Trash2 className="h-3 w-3" /> Delete
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs"
+                  onClick={() => { setBulkMode(false); setSelectedBulkIds(new Set()); }}>
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          <CategoryPickerDialog
+            open={bulkMoveOpen}
+            excludeId={selectedCategoryId}
+            categories={categories}
+            onSelect={handleBulkMove}
+            onClose={() => setBulkMoveOpen(false)}
+          />
         </>
       ) : null}
       <div

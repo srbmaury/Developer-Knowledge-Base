@@ -1,18 +1,24 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, type DragEndEvent, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Brain, ChevronRight, ChevronDown, ChevronUp, Eye, Folder, FolderOpen, Globe2, GripVertical, Home, Lock, Moon, PanelLeftClose, Plus, Star, Sun, Trash2 } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronUp, Folder, FolderOpen, Globe2, GripVertical, Inbox, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspace-store";
 import type { Category } from "@/types/knowledge";
-import { UserMenu } from "@/components/user-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+function filterPendingCategories(cats: Category[], pendingIds: Set<string>): Category[] {
+  return cats
+    .filter((c) => !pendingIds.has(c.id))
+    .map((c) => ({ ...c, children: filterPendingCategories(c.children, pendingIds) }));
+}
 
 function PendingCategoryInput({
   value,
@@ -60,53 +66,57 @@ function findCategory(categories: Category[], categoryId: string): Category | nu
 }
 
 export function Sidebar({
-  userEmail,
-  workspaceTitle,
-  workspaceSubtitle,
   canCreateRootCategory,
   onCollapse
 }: {
-  userEmail: string | null;
-  workspaceTitle: string;
-  workspaceSubtitle: string;
   canCreateRootCategory: boolean;
   onCollapse: () => void;
 }) {
   const {
     categories,
     addCategory,
+    deleteCategory,
     selectQuestion,
     selectCategory,
     toggleCategory,
   } = useWorkspaceStore();
+
   const [pendingRootName, setPendingRootName] = useState<string | null>(null);
+  const [pendingDeleteCategoryIds, setPendingDeleteCategoryIds] = useState<Set<string>>(new Set());
+  const deleteCategoryTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    const timers = deleteCategoryTimers.current;
+    return () => { timers.forEach(clearTimeout); };
+  }, []);
+
+  function handleDeleteCategoryRequest(categoryId: string) {
+    const cat = findCategory(categories, categoryId);
+    const name = cat?.name || "Untitled";
+    setPendingDeleteCategoryIds((prev) => new Set([...prev, categoryId]));
+    const timer = setTimeout(() => {
+      void deleteCategory(categoryId);
+      setPendingDeleteCategoryIds((prev) => { const n = new Set(prev); n.delete(categoryId); return n; });
+      deleteCategoryTimers.current.delete(categoryId);
+    }, 5000);
+    deleteCategoryTimers.current.set(categoryId, timer);
+    toast(`"${name}" deleted`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          clearTimeout(deleteCategoryTimers.current.get(categoryId));
+          deleteCategoryTimers.current.delete(categoryId);
+          setPendingDeleteCategoryIds((prev) => { const n = new Set(prev); n.delete(categoryId); return n; });
+        }
+      },
+      duration: 5000
+    });
+  }
   const { setTheme, resolvedTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
-
-
-  const navItems = [
-    { href: "/", label: "Home", icon: Home },
-    { href: "/most-viewed", label: "Most Viewed", icon: Eye },
-    { href: "/starred", label: "Starred", icon: Star },
-    { href: "/review", label: "Review Queue", icon: Brain },
-    { href: "/public", label: "Public", icon: Globe2 },
-  ] as const;
-  const currentNav = navItems.find((item) => item.href === pathname) ?? navItems[0];
-  const [isNavOpen, setIsNavOpen] = useState(false);
-  const navRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isNavOpen) return;
-    function handleOutsideClick(e: MouseEvent) {
-      if (navRef.current && !navRef.current.contains(e.target as Node)) setIsNavOpen(false);
-    }
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, [isNavOpen]);
 
   function collectAllCategoryIds(nodes: Category[]) {
     const ids: string[] = [];
@@ -130,18 +140,6 @@ export function Sidebar({
     };
     visit(nodes);
     return total;
-  }
-
-  function totalSolvedCount(nodes: Category[]) {
-    let solved = 0;
-    const visit = (items: Category[]) => {
-      for (const item of items) {
-        solved += item.questions.filter((q) => q.status === "SOLVED").length;
-        if (item.children?.length) visit(item.children);
-      }
-    };
-    visit(nodes);
-    return solved;
   }
 
   function expandAll() {
@@ -196,6 +194,10 @@ export function Sidebar({
     if (findQuestion(q)) { selectQuestion(q); }
   }, [searchParams, selectCategory, selectQuestion]);
 
+  const visibleCategories = filterPendingCategories(categories, pendingDeleteCategoryIds);
+  const inboxCategory = visibleCategories.find((c) => c.name.toLowerCase() === "inbox") ?? null;
+  const inboxCount = inboxCategory ? inboxCategory.questions.length : 0;
+
   const { selectedQuestionId, reorderCategories } = useWorkspaceStore();
 
   const sensors = useSensors(
@@ -238,53 +240,50 @@ export function Sidebar({
 
   return (
     <aside className="flex h-full w-full shrink-0 flex-col overflow-hidden border-r bg-card/80 backdrop-blur-xl md:flex">
-      <div className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-foreground text-background">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
+        <button
+          type="button"
+          onClick={() => router.push("/")}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background transition-opacity hover:opacity-80"
+          aria-label="Go home"
+          title="Home"
+        >
           <span className="text-sm font-bold">DK</span>
+        </button>
+        <div className="min-w-0 flex-1 px-1">
+          <p className="truncate text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{categories.length}</span> categories
+            {" · "}
+            <span className="font-medium text-foreground">{totalQuestionsCount(categories)}</span> notes
+          </p>
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{workspaceTitle}</p>
-          <p className="text-xs text-muted-foreground">{workspaceSubtitle}</p>
-        </div>
-        <Button className="ml-auto h-8 w-8" size="icon" variant="ghost" onClick={onCollapse} aria-label="Collapse categories sidebar">
+        <Button className="h-7 w-7" size="icon" variant="ghost" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")} aria-label="Toggle theme" title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+          {themeMounted ? (resolvedTheme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <Moon className="h-4 w-4" />}
+        </Button>
+        <Button className="h-7 w-7" size="icon" variant="ghost" onClick={onCollapse} aria-label="Collapse sidebar" title="Collapse sidebar">
           <PanelLeftClose className="h-4 w-4" />
         </Button>
       </div>
 
 
 
-      <div ref={navRef} className="relative shrink-0 border-b px-3 py-2">
-        <button
-          type="button"
-          onClick={() => setIsNavOpen((prev) => !prev)}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
-        >
-          <currentNav.icon className="h-4 w-4" />
-          <span className="flex-1 text-left">{currentNav.label}</span>
-          <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", isNavOpen && "rotate-180")} />
-        </button>
-        {isNavOpen && (
-          <div className="absolute left-3 right-3 top-full z-50 mt-1 rounded-md border bg-card shadow-md">
-            {navItems.map(({ href, label, icon: Icon }) => (
-              <button
-                key={href}
-                type="button"
-                onClick={() => { router.push(href); setIsNavOpen(false); }}
-                className={cn(
-                  "flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors first:rounded-t-md last:rounded-b-md hover:bg-muted",
-                  pathname === href && "bg-muted font-medium"
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+          {inboxCategory ? (
+            <button
+              type="button"
+              onClick={() => selectCategory(inboxCategory.id)}
+              className="mb-3 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Inbox className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left">Inbox</span>
+              {inboxCount > 0 ? (
+                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
+                  {inboxCount}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
           <div className="mb-3 flex items-center justify-between px-1">
             <div className="flex items-center gap-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Categories</p>
@@ -310,15 +309,30 @@ export function Sidebar({
             </div>
           </div>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => handleCategoryDragEnd(event, null)}>
-            <SortableContext items={categories.map((category) => category.id)} strategy={verticalListSortingStrategy}>
+            <SortableContext items={visibleCategories.map((category) => category.id)} strategy={verticalListSortingStrategy}>
               <nav className="space-y-1">
-                {categories.map((category) => (
+                {visibleCategories.length === 0 && pendingRootName === null ? (
+                  <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-4 py-8 text-center">
+                    <Folder className="h-8 w-8 text-muted-foreground/50" />
+                    <div>
+                      <p className="text-sm font-medium">No categories yet</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Create a category to start organizing your notes.</p>
+                    </div>
+                    {canCreateRootCategory ? (
+                      <Button size="sm" onClick={() => setPendingRootName("")}>
+                        <Plus className="mr-1 h-4 w-4" /> New category
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {visibleCategories.map((category) => (
                   <CategoryNode
                     key={category.id}
                     category={category}
                     depth={0}
                     sensors={sensors}
                     onDragEnd={handleCategoryDragEnd}
+                    onDeleteRequest={handleDeleteCategoryRequest}
                   />
                 ))}
                 {pendingRootName !== null ? (
@@ -334,43 +348,8 @@ export function Sidebar({
           </DndContext>
         </div>
 
-        <div className="shrink-0 border-t px-3 py-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-xs text-muted-foreground">
-              <div>Categories: <strong className="text-foreground">{categories.length}</strong></div>
-              <div>Notes: <strong className="text-foreground">{totalQuestionsCount(categories)}</strong></div>
-              {totalQuestionsCount(categories) > 0 ? (
-                <div className="mt-1.5 flex items-center gap-2">
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-emerald-500 transition-all"
-                      style={{ width: `${Math.round((totalSolvedCount(categories) / totalQuestionsCount(categories)) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-[10px] tabular-nums">{totalSolvedCount(categories)}/{totalQuestionsCount(categories)}</span>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="flex items-center gap-2">
-              {canCreateRootCategory ? (
-                <Button size="sm" variant="ghost" onClick={() => setPendingRootName("")}>
-                  <Plus className="h-4 w-4" /> Add
-                </Button>
-              ) : null}
-              <Button className="h-8 w-8" size="icon" variant="ghost" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
-                {themeMounted ? (resolvedTheme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <Moon className="h-4 w-4" />}
-              </Button>
-            </div>
-          </div>
-
-        </div>
-
       </div>
 
-      <div className="shrink-0 space-y-1 border-t p-3">
-        <UserMenu email={userEmail} />
-      </div>
     </aside>
   );
 }
@@ -389,7 +368,7 @@ function countSubtreeSolved(category: Category): number {
 }
 
 
-function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Category; depth: number; sensors: ReturnType<typeof useSensors>; onDragEnd: (event: DragEndEvent, parentId: string | null) => void }) {
+function CategoryNode({ category, depth, sensors, onDragEnd, onDeleteRequest }: { category: Category; depth: number; sensors: ReturnType<typeof useSensors>; onDragEnd: (event: DragEndEvent, parentId: string | null) => void; onDeleteRequest: (id: string) => void }) {
   const {
     selectedCategoryId,
     expandedCategoryIds,
@@ -398,7 +377,6 @@ function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Categ
     addCategory,
     updateCategoryName,
     updateCategoryVisibility,
-    deleteCategory,
   } = useWorkspaceStore();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: category.id,
@@ -410,17 +388,6 @@ function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Categ
   const solvedCount = countSubtreeSolved(category);
   const [editing, setEditing] = useState(false);
   const [pendingChildName, setPendingChildName] = useState<string | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-
-  useEffect(() => {
-    if (!confirmingDelete) return;
-    const t = setTimeout(() => setConfirmingDelete(false), 3000);
-    return () => clearTimeout(t);
-  }, [confirmingDelete]);
-
-  function handleDelete() {
-    deleteCategory(category.id);
-  }
 
   return (
     <div
@@ -488,24 +455,7 @@ function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Categ
               {questionCount}
             </span>
           </div>
-          {confirmingDelete ? (
-            <div className="ml-1 flex shrink-0 items-center gap-1 pr-1">
-              <span className="text-[11px] text-muted-foreground">Delete?</span>
-              <button
-                onClick={() => { handleDelete(); setConfirmingDelete(false); }}
-                className="rounded px-1.5 py-0.5 text-[11px] font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
-              >
-                Yes
-              </button>
-              <button
-                onClick={() => setConfirmingDelete(false)}
-                className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                No
-              </button>
-            </div>
-          ) : (
-            <div className="hidden shrink-0 items-center group-hover:flex">
+          <div className="hidden shrink-0 items-center group-hover:flex">
             {category.canEdit ? (
               <>
                 <Button
@@ -532,7 +482,7 @@ function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Categ
                   className="mr-1 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
                   size="icon"
                   variant="ghost"
-                  onClick={() => setConfirmingDelete(true)}
+                  onClick={() => onDeleteRequest(category.id)}
                   aria-label={`Delete ${category.name}`}
                   title={`Delete "${category.name}"`}
                 >
@@ -540,8 +490,7 @@ function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Categ
                 </Button>
               </>
             ) : null}
-            </div>
-          )}
+          </div>
         </div>
       </div>
       {expanded && (category.children.length > 0 || pendingChildName !== null) ? (
@@ -555,6 +504,7 @@ function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Categ
                   depth={depth + 1}
                   sensors={sensors}
                   onDragEnd={onDragEnd}
+                  onDeleteRequest={onDeleteRequest}
                 />
               ))}
             </SortableContext>

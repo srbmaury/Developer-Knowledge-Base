@@ -34,7 +34,7 @@ export function computeNextSR(
 }
 
 export function isDue(srDue: string | null): boolean {
-  if (!srDue) return true; // never reviewed
+  if (!srDue) return false; // not enrolled in review
   return new Date(srDue) <= new Date();
 }
 

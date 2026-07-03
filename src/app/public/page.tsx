@@ -9,8 +9,7 @@ export default async function PublicPage() {
     <KnowledgeBaseApp
       initialCategories={data.categories}
       userEmail={viewer?.email ?? null}
-      workspaceTitle="Public Knowledge Base"
-      workspaceSubtitle="Published notes"
+
       canCreateRootCategory={false}
     />
   );

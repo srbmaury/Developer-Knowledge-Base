@@ -16,8 +16,7 @@ export default async function StarredPage() {
       initialCategories={filtered}
       initialTags={data.tags}
       userEmail={user.email}
-      workspaceTitle="Starred Notes"
-      workspaceSubtitle="Your favorite notes"
+
       canCreateRootCategory={false}
       emptyMessage="Star some notes from your workspace to see them here."
     />

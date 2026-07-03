@@ -26,6 +26,7 @@ type WorkspaceState = {
   saveStatus: SaveStatus;
   query: string;
   commandOpen: boolean;
+  shortcutsOpen: boolean;
 
   /** Derived indexes for faster lookups (not persisted) */
   questionIdToCategoryId: Map<string, string>;
@@ -38,6 +39,7 @@ type WorkspaceState = {
   toggleCategory: (categoryId: string) => void;
   setQuery: (query: string) => void;
   setCommandOpen: (open: boolean) => void;
+  setShortcutsOpen: (open: boolean) => void;
   addCategory: (name: string, parentId?: string | null) => Promise<void>;
   updateCategoryName: (categoryId: string, name: string) => void;
   updateCategoryVisibility: (categoryId: string, isPublic: boolean) => void;
@@ -60,6 +62,9 @@ type WorkspaceState = {
   updateSolutionAiReview: (solutionId: string, review: ReviewResult | null) => void;
   updateQuestionStatus: (questionId: string, status: QuestionStatus) => void;
   submitSpacedReview: (questionId: string, grade: SRGrade) => void;
+  moveQuestion: (questionId: string, targetCategoryId: string) => void;
+  enrollInReview: (questionId: string) => void;
+  unenrollFromReview: (questionId: string) => void;
   searchIndex: MiniSearch | null;
   rebuildSearchIndex: () => void;
   filterStatus: QuestionStatus | null;
@@ -324,6 +329,9 @@ const questionTitleSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const questionDescriptionSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const solutionTitleSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const solutionNotesSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingQuestionPatches = new Map<string, { title?: string; description?: string; difficulty?: Difficulty }>();
+const pendingSolutionPatches = new Map<string, { title?: string; language?: SolutionLanguage; content?: string; notes?: string; aiReview?: ReviewResult | null }>();
+let bulkSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let activeSaveCount = 0;
 let savedStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let setSaveStatus: ((status: SaveStatus) => void) | null = null;
@@ -386,10 +394,15 @@ function scheduleQuestionTitleSave(questionId: string, title: string) {
   if (existing) clearTimeout(existing);
   markSavePending();
 
+  pendingQuestionPatches.set(questionId, {
+    ...pendingQuestionPatches.get(questionId),
+    title
+  });
+
   questionTitleSaveTimers.set(
     questionId,
     setTimeout(() => {
-      runSave(() => workspaceSync.updateQuestion(questionId, { title }));
+      scheduleBulkSave();
       questionTitleSaveTimers.delete(questionId);
     }, SAVE_DEBOUNCE_MS)
   );
@@ -401,13 +414,33 @@ function scheduleQuestionDescriptionSave(questionId: string, description: string
   if (existing) clearTimeout(existing);
   markSavePending();
 
+  pendingQuestionPatches.set(questionId, {
+    ...pendingQuestionPatches.get(questionId),
+    description
+  });
+
   questionDescriptionSaveTimers.set(
     questionId,
     setTimeout(() => {
-      runSave(() => workspaceSync.updateQuestion(questionId, { description }));
+      scheduleBulkSave();
       questionDescriptionSaveTimers.delete(questionId);
     }, SAVE_DEBOUNCE_MS)
   );
+}
+
+function scheduleQuestionDifficultySave(questionId: string, difficulty: Difficulty) {
+  if (questionId.startsWith("temp-")) return;
+  markSavePending();
+
+  pendingQuestionPatches.set(questionId, {
+    ...pendingQuestionPatches.get(questionId),
+    difficulty
+  });
+
+  if (bulkSaveTimer) clearTimeout(bulkSaveTimer);
+  bulkSaveTimer = setTimeout(() => {
+    scheduleBulkSave();
+  }, SAVE_DEBOUNCE_MS);
 }
 
 function scheduleSolutionTitleSave(solutionId: string, title: string) {
@@ -416,10 +449,15 @@ function scheduleSolutionTitleSave(solutionId: string, title: string) {
   if (existing) clearTimeout(existing);
   markSavePending();
 
+  pendingSolutionPatches.set(solutionId, {
+    ...pendingSolutionPatches.get(solutionId),
+    title
+  });
+
   solutionTitleSaveTimers.set(
     solutionId,
     setTimeout(() => {
-      runSave(() => workspaceSync.updateSolution(solutionId, { title }));
+      scheduleBulkSave();
       solutionTitleSaveTimers.delete(solutionId);
     }, SAVE_DEBOUNCE_MS)
   );
@@ -431,13 +469,31 @@ function scheduleSolutionSave(solutionId: string, content: string) {
   if (existing) clearTimeout(existing);
   markSavePending();
 
+  pendingSolutionPatches.set(solutionId, {
+    ...pendingSolutionPatches.get(solutionId),
+    content
+  });
+
   contentSaveTimers.set(
     solutionId,
     setTimeout(() => {
-      runSave(() => workspaceSync.updateSolution(solutionId, { content }));
+      scheduleBulkSave();
       contentSaveTimers.delete(solutionId);
     }, SAVE_DEBOUNCE_MS)
   );
+}
+
+function scheduleBulkSave() {
+  if (bulkSaveTimer) clearTimeout(bulkSaveTimer);
+  bulkSaveTimer = setTimeout(() => {
+    const questions = [...pendingQuestionPatches.entries()].map(([questionId, patch]) => ({ questionId, ...patch }));
+    const solutions = [...pendingSolutionPatches.entries()].map(([solutionId, patch]) => ({ solutionId, ...patch }));
+    pendingQuestionPatches.clear();
+    pendingSolutionPatches.clear();
+    bulkSaveTimer = null;
+    if (questions.length === 0 && solutions.length === 0) return;
+    runSave(() => workspaceSync.bulkSave(questions.length > 0 ? questions : undefined, solutions.length > 0 ? solutions : undefined));
+  }, SAVE_DEBOUNCE_MS);
 }
 
 function scheduleSolutionNotesSave(solutionId: string, notes: string) {
@@ -472,9 +528,25 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       saveStatus: "idle",
       query: "",
       commandOpen: false,
+      shortcutsOpen: false,
       questionIdToCategoryId: new Map(),
       solutionIdToLocation: new Map(),
-      setInitialData: (categories) => {
+      setInitialData: (incomingCategories) => {
+        // Preserve any optimistic SR state the client set that the server doesn't know about yet
+        const localSrDue = new Map(
+          flattenQuestions(get().categories)
+            .filter((q) => q.srDue !== null)
+            .map((q) => [q.id, q.srDue!])
+        );
+        const categories = localSrDue.size === 0
+          ? incomingCategories
+          : mapCategories(incomingCategories, (cat) => ({
+              ...cat,
+              questions: cat.questions.map((q) =>
+                !q.srDue && localSrDue.has(q.id) ? { ...q, srDue: localSrDue.get(q.id)! } : q
+              )
+            }));
+
         const questionIdToCategoryId = buildQuestionLocationIndex(categories);
         const solutionIdToLocation = buildSolutionLocationIndex(categories);
         const state = get();
@@ -540,6 +612,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         })),
       setQuery: (query) => set({ query }),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
+      setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
       addCategory: async (name, parentId = null) => {
         const { categories } = get();
         if (parentId && !canEditCategory(categories, parentId)) return;
@@ -813,7 +886,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             updatedAt: new Date().toISOString()
           }))
         }));
-        void workspaceSync.updateQuestion(questionId, { difficulty });
+        scheduleQuestionDifficultySave(questionId, difficulty);
       },
       reorderQuestions: (categoryId, questionIds) => {
         if (!canEditCategory(get().categories, categoryId)) return;
@@ -969,7 +1042,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, language })),
           ...(language !== "none" ? { defaultLanguage: language } : {})
         }));
-        void workspaceSync.updateSolution(solutionId, { language });
+        pendingSolutionPatches.set(solutionId, {
+          ...pendingSolutionPatches.get(solutionId),
+          language
+        });
+        scheduleBulkSave();
       },
       updateSolutionContent: (solutionId, content) => {
         if (!canEditSolution(get().categories, solutionId)) return;
@@ -1063,6 +1140,50 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             }))
           }));
         });
+      },
+      enrollInReview: (questionId) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
+        const optimisticDue = new Date().toISOString();
+        set((state) => ({
+          categories: updateQuestionInTree(state.categories, questionId, (q) => ({
+            ...q,
+            srDue: optimisticDue
+          }))
+        }));
+        void workspaceSync.enrollInReview(questionId);
+      },
+      moveQuestion: (questionId, targetCategoryId) => {
+        const { categories } = get();
+        const srcCat = findCategoryForQuestion(categories, questionId);
+        if (!srcCat || !srcCat.canEdit) return;
+        const tgtCat = findCategory(categories, targetCategoryId);
+        if (!tgtCat || !tgtCat.canEdit) return;
+        if (srcCat.id === targetCategoryId) return;
+        const question = srcCat.questions.find((q) => q.id === questionId);
+        if (!question) return;
+        const moved = { ...question, categoryId: targetCategoryId, isPinned: false, order: tgtCat.questions.length };
+        set((state) => ({
+          categories: mapCategories(state.categories, (cat) => {
+            if (cat.id === srcCat.id) return { ...cat, questions: cat.questions.filter((q) => q.id !== questionId) };
+            if (cat.id === targetCategoryId) return { ...cat, questions: [...cat.questions, moved] };
+            return cat;
+          }),
+          selectedCategoryId: targetCategoryId
+        }));
+        void workspaceSync.moveQuestion(questionId, targetCategoryId);
+      },
+      unenrollFromReview: (questionId) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
+        set((state) => ({
+          categories: updateQuestionInTree(state.categories, questionId, (q) => ({
+            ...q,
+            srDue: null,
+            srInterval: 1,
+            srEase: 2.5,
+            srReviews: 0
+          }))
+        }));
+        void workspaceSync.unenrollFromReview(questionId);
       },
       rebuildSearchIndex: () => {
         set((state) => ({ searchIndex: buildSearchIndex(state.categories) }));

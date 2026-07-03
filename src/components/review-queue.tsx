@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Brain, CheckCircle, ChevronRight, Clock, Eye, RotateCcw } from "lucide-react";
+import { ArrowLeft, Brain, CheckCircle, ChevronRight, ChevronDown, Clock, Eye, Flame, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { TopNav } from "@/components/top-nav";
 import { isDue, daysUntilDue, computeNextSR } from "@/lib/spaced-repetition";
 import type { SRGrade } from "@/lib/spaced-repetition";
 import { getAllQuestions, useWorkspaceStore } from "@/store/workspace-store";
@@ -13,6 +14,30 @@ import type { Category, Question } from "@/types/knowledge";
 import { DIFFICULTIES, difficultyBadgeClass } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { TAG_COLOR_CLASSES } from "@/lib/tag-colors";
+
+type ReviewHistoryItem = { date: string; title: string; grade: string };
+
+function computeStreak(dates: string[]): number {
+  if (dates.length === 0) return 0;
+  const dateSet = new Set(dates);
+  const today = new Date().toISOString().split("T")[0];
+  if (!dateSet.has(today)) return 0;
+  let streak = 1;
+  const d = new Date();
+  for (;;) {
+    d.setDate(d.getDate() - 1);
+    if (dateSet.has(d.toISOString().split("T")[0])) streak++;
+    else break;
+  }
+  return streak;
+}
+
+function formatHistoryDate(isoString: string): string {
+  const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return new Date(isoString).toLocaleDateString();
+}
 
 const DIFFICULTY_ORDER = { EASY: 0, MEDIUM: 1, HARD: 2 };
 
@@ -25,7 +50,7 @@ function sortReviewQueue(questions: Question[]): Question[] {
   });
 }
 
-export function ReviewQueue({ initialCategories }: { initialCategories: Category[] }) {
+export function ReviewQueue({ initialCategories, userEmail }: { initialCategories: Category[]; userEmail?: string | null }) {
   const { categories, setInitialData, submitSpacedReview } = useWorkspaceStore();
   const router = useRouter();
 
@@ -47,6 +72,17 @@ export function ReviewQueue({ initialCategories }: { initialCategories: Category
 
   function handleGrade(grade: SRGrade) {
     if (!current) return;
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const rawDates = localStorage.getItem("dk:reviewDates");
+      const dates: string[] = rawDates ? JSON.parse(rawDates) : [];
+      if (!dates.includes(today)) { dates.push(today); localStorage.setItem("dk:reviewDates", JSON.stringify(dates)); }
+      const rawHist = localStorage.getItem("dk:reviewHistory");
+      const hist: ReviewHistoryItem[] = rawHist ? JSON.parse(rawHist) : [];
+      hist.unshift({ date: new Date().toISOString(), title: current.title || "Untitled", grade });
+      if (hist.length > 100) hist.pop();
+      localStorage.setItem("dk:reviewHistory", JSON.stringify(hist));
+    } catch { /* localStorage unavailable */ }
     submitSpacedReview(current.id, grade);
     const next = currentIndex + 1;
     if (next >= dueQuestions.length) {
@@ -66,17 +102,13 @@ export function ReviewQueue({ initialCategories }: { initialCategories: Category
   const isEmpty = dueQuestions.length === 0;
 
   return (
-    <div className="flex min-h-full flex-col bg-background">
-      {/* Sticky header */}
-      <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background/90 px-4 backdrop-blur-sm">
-        <Button variant="ghost" size="icon" onClick={() => router.push("/")} aria-label="Back to workspace">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex items-center gap-2">
+    <div className="flex min-h-screen flex-col bg-background">
+      <TopNav userEmail={userEmail ?? null} />
+      {/* Sub-header: progress */}
+      {!isEmpty && !done ? (
+        <div className="flex h-10 shrink-0 items-center gap-3 border-b px-4">
           <Brain className="h-4 w-4 text-primary" />
-          <span className="font-semibold">Review Queue</span>
-        </div>
-        {!isEmpty && !done ? (
+          <span className="text-sm font-medium">Review Queue</span>
           <div className="ml-auto flex items-center gap-3">
             <span className="text-sm text-muted-foreground">{currentIndex + 1} / {dueQuestions.length}</span>
             <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
@@ -86,8 +118,8 @@ export function ReviewQueue({ initialCategories }: { initialCategories: Category
               />
             </div>
           </div>
-        ) : null}
-      </header>
+        </div>
+      ) : null}
 
       {/* Content */}
       <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-8">
@@ -107,16 +139,36 @@ export function ReviewQueue({ initialCategories }: { initialCategories: Category
   );
 }
 
+const GRADE_COLORS: Record<string, string> = {
+  again: "text-rose-500",
+  hard: "text-amber-500",
+  good: "text-blue-500",
+  easy: "text-emerald-500",
+};
+
 function EmptyState({ done, count, allQuestions, onBack }: {
   done: boolean;
   count: number;
   allQuestions: Question[];
   onBack: () => void;
 }) {
+  const [streak, setStreak] = useState(0);
+  const [history, setHistory] = useState<ReviewHistoryItem[]>([]);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
+
+  useEffect(() => {
+    try {
+      const rawDates = localStorage.getItem("dk:reviewDates");
+      setStreak(computeStreak(rawDates ? JSON.parse(rawDates) : []));
+      const rawHist = localStorage.getItem("dk:reviewHistory");
+      setHistory(rawHist ? JSON.parse(rawHist) : []);
+    } catch { /* localStorage unavailable */ }
+  }, [done]);
+
   const upcoming = allQuestions
-    .filter((q) => !isDue(q.srDue))
-    .sort((a, b) => daysUntilDue(a.srDue) - daysUntilDue(b.srDue))
-    .slice(0, 5);
+    .filter((q) => q.srDue !== null && !isDue(q.srDue))
+    .sort((a, b) => daysUntilDue(a.srDue) - daysUntilDue(b.srDue));
+  const visibleUpcoming = showAllUpcoming ? upcoming : upcoming.slice(0, 5);
 
   return (
     <div className="flex flex-col items-center gap-6 py-16 text-center">
@@ -130,16 +182,49 @@ function EmptyState({ done, count, allQuestions, onBack }: {
             ? `You reviewed ${count} question${count === 1 ? "" : "s"}.`
             : "No questions are due for review right now."}
         </p>
+        {streak > 0 ? (
+          <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-orange-500/10 px-3 py-1 text-sm font-medium text-orange-600 dark:text-orange-400">
+            <Flame className="h-4 w-4" />
+            {streak}-day streak
+          </div>
+        ) : null}
       </div>
       {upcoming.length > 0 ? (
         <div className="w-full max-w-sm rounded-lg border bg-card p-4 text-left">
-          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Coming up</p>
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Coming up · {upcoming.length} enrolled
+          </p>
           <ul className="space-y-2">
-            {upcoming.map((q) => (
+            {visibleUpcoming.map((q) => (
               <li key={q.id} className="flex items-center gap-2 text-sm">
                 <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{q.title || "Untitled"}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">in {daysUntilDue(q.srDue)}d</span>
+              </li>
+            ))}
+          </ul>
+          {upcoming.length > 5 && !showAllUpcoming ? (
+            <button
+              onClick={() => setShowAllUpcoming(true)}
+              className="mt-3 flex w-full items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+              Show {upcoming.length - 5} more
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {done && history.length > 0 ? (
+        <div className="w-full max-w-sm rounded-lg border bg-card p-4 text-left">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent reviews</p>
+          <ul className="space-y-2">
+            {history.slice(0, 8).map((item, i) => (
+              <li key={i} className="flex items-center gap-2 text-sm">
+                <span className={cn("shrink-0 text-xs font-semibold capitalize w-10", GRADE_COLORS[item.grade] ?? "text-muted-foreground")}>
+                  {item.grade}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-foreground">{item.title}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{formatHistoryDate(item.date)}</span>
               </li>
             ))}
           </ul>
