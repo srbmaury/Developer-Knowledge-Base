@@ -15,6 +15,12 @@ function makeQuestion(overrides: Partial<Question> = {}): Question {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     solutions: [],
+    tags: [],
+    status: "NOT_STARTED" as const,
+    srDue: null,
+    srInterval: 1,
+    srEase: 2.5,
+    srReviews: 0,
     ...overrides
   };
 }

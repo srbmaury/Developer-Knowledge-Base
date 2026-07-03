@@ -11,5 +11,5 @@ export default async function Home() {
 
   const data = await getWorkspaceData();
 
-  return <KnowledgeBaseApp initialCategories={data.categories} userEmail={user.email} />;
+  return <KnowledgeBaseApp initialCategories={data.categories} initialTags={data.tags} userEmail={user.email} />;
 }

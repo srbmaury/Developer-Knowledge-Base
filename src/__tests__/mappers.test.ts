@@ -27,6 +27,7 @@ type MockQuestion = {
   createdAt: Date;
   updatedAt: Date;
   solutions: MockSolution[];
+  tags: { id: string; name: string; color: string }[];
 };
 
 type MockRow = {
@@ -69,6 +70,7 @@ function makeQuestion(overrides: Partial<MockQuestion> = {}): MockQuestion {
     createdAt: NOW,
     updatedAt: NOW,
     solutions: [],
+    tags: [],
     ...overrides
   };
 }

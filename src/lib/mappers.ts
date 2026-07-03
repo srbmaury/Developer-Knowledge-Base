@@ -1,15 +1,24 @@
 import type { Prisma } from "@prisma/client";
 import { compareQuestionsByPinAndOrder } from "@/lib/question-order";
-import type { Category, Difficulty, Question, Solution, SolutionLanguage } from "@/types/knowledge";
+import type { Category, Difficulty, Question, QuestionStatus, Solution, SolutionLanguage, Tag, TagColor } from "@/types/knowledge";
 import type { ReviewResult } from "@/lib/ai-answer";
 
 type CategoryWithRelations = Prisma.CategoryGetPayload<{
   include: {
     questions: {
-      include: { solutions: true };
+      include: { solutions: true; tags: true };
     };
   };
 }>;
+
+function toTagColor(value: string): TagColor {
+  const allowed: TagColor[] = ["gray", "red", "orange", "yellow", "green", "blue", "purple", "pink"];
+  return allowed.includes(value as TagColor) ? (value as TagColor) : "blue";
+}
+
+export function mapTag(tag: { id: string; name: string; color: string }): Tag {
+  return { id: tag.id, name: tag.name, color: toTagColor(tag.color) };
+}
 
 function toSolutionLanguage(value: string): SolutionLanguage {
   const allowed: SolutionLanguage[] = ["none", "java", "cpp", "javascript", "typescript", "python", "sql"];
@@ -31,6 +40,12 @@ function mapSolution(solution: CategoryWithRelations["questions"][number]["solut
   };
 }
 
+const VALID_STATUSES: QuestionStatus[] = ["NOT_STARTED", "IN_PROGRESS", "SOLVED"];
+
+function toQuestionStatus(value: string): QuestionStatus {
+  return VALID_STATUSES.includes(value as QuestionStatus) ? (value as QuestionStatus) : "NOT_STARTED";
+}
+
 function mapQuestion(question: CategoryWithRelations["questions"][number]): Question {
   return {
     id: question.id,
@@ -41,11 +56,17 @@ function mapQuestion(question: CategoryWithRelations["questions"][number]): Ques
     isFavorite: question.isFavorite,
     isPinned: question.isPinned,
     order: question.order,
+    status: toQuestionStatus(question.status),
+    srDue: question.srDue?.toISOString() ?? null,
+    srInterval: question.srInterval,
+    srEase: question.srEase,
+    srReviews: question.srReviews,
     createdAt: question.createdAt.toISOString(),
     updatedAt: question.updatedAt.toISOString(),
     solutions: [...question.solutions]
       .sort((a, b) => a.order - b.order)
-      .map(mapSolution)
+      .map(mapSolution),
+    tags: question.tags.map(mapTag)
   };
 }
 

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, type DragEndEvent, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronRight, ChevronDown, ChevronUp, Eye, Folder, FolderOpen, Globe2, GripVertical, Home, Loader2, Lock, Moon, PanelLeftClose, Plus, Star, Sun, Trash2 } from "lucide-react";
+import { Brain, ChevronRight, ChevronDown, ChevronUp, Eye, Folder, FolderOpen, Globe2, GripVertical, Home, Lock, Moon, PanelLeftClose, Plus, Star, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/store/workspace-store";
@@ -13,6 +13,42 @@ import type { Category } from "@/types/knowledge";
 import { UserMenu } from "@/components/user-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+function PendingCategoryInput({
+  value,
+  onChange,
+  onCommit,
+  onCancel,
+  depth = 0
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  depth?: number;
+}) {
+  const escapeRef = useRef(false);
+  return (
+    <div className="flex items-center gap-2 rounded-md px-2 py-1" style={{ paddingLeft: `${depth * 10 + 8}px` }}>
+      <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <Input
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") { escapeRef.current = true; e.currentTarget.blur(); }
+        }}
+        onBlur={() => {
+          if (escapeRef.current) { escapeRef.current = false; onCancel(); return; }
+          if (value.trim()) onCommit(); else onCancel();
+        }}
+        placeholder="Category name"
+        className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+      />
+    </div>
+  );
+}
 
 function findCategory(categories: Category[], categoryId: string): Category | null {
   for (const category of categories) {
@@ -42,21 +78,21 @@ export function Sidebar({
     selectQuestion,
     selectCategory,
     toggleCategory,
-    creatingCategoryKeys
   } = useWorkspaceStore();
-  const { theme, setTheme } = useTheme();
+  const [pendingRootName, setPendingRootName] = useState<string | null>(null);
+  const { setTheme, resolvedTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const isCreatingRootCategory = creatingCategoryKeys.includes("__root__");
 
   const navItems = [
     { href: "/", label: "Home", icon: Home },
     { href: "/most-viewed", label: "Most Viewed", icon: Eye },
     { href: "/starred", label: "Starred", icon: Star },
+    { href: "/review", label: "Review Queue", icon: Brain },
     { href: "/public", label: "Public", icon: Globe2 },
   ] as const;
   const currentNav = navItems.find((item) => item.href === pathname) ?? navItems[0];
@@ -94,6 +130,18 @@ export function Sidebar({
     };
     visit(nodes);
     return total;
+  }
+
+  function totalSolvedCount(nodes: Category[]) {
+    let solved = 0;
+    const visit = (items: Category[]) => {
+      for (const item of items) {
+        solved += item.questions.filter((q) => q.status === "SOLVED").length;
+        if (item.children?.length) visit(item.children);
+      }
+    };
+    visit(nodes);
+    return solved;
   }
 
   function expandAll() {
@@ -146,7 +194,6 @@ export function Sidebar({
 
     if (findCategory(q)) { selectCategory(q); return; }
     if (findQuestion(q)) { selectQuestion(q); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, selectCategory, selectQuestion]);
 
   const { selectedQuestionId, reorderCategories } = useWorkspaceStore();
@@ -254,10 +301,10 @@ export function Sidebar({
                   size="icon"
                   variant="ghost"
                   className="h-7 w-7"
-                  disabled={isCreatingRootCategory}
-                  onClick={() => void addCategory("New Category")}
+                  onClick={() => setPendingRootName("")}
+                  title="New category"
                 >
-                  {isCreatingRootCategory ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  <Plus className="h-4 w-4" />
                 </Button>
               ) : null}
             </div>
@@ -274,6 +321,14 @@ export function Sidebar({
                     onDragEnd={handleCategoryDragEnd}
                   />
                 ))}
+                {pendingRootName !== null ? (
+                  <PendingCategoryInput
+                    value={pendingRootName}
+                    onChange={setPendingRootName}
+                    onCommit={() => { void addCategory(pendingRootName.trim()); setPendingRootName(null); }}
+                    onCancel={() => setPendingRootName(null)}
+                  />
+                ) : null}
               </nav>
             </SortableContext>
           </DndContext>
@@ -284,16 +339,27 @@ export function Sidebar({
             <div className="text-xs text-muted-foreground">
               <div>Categories: <strong className="text-foreground">{categories.length}</strong></div>
               <div>Notes: <strong className="text-foreground">{totalQuestionsCount(categories)}</strong></div>
+              {totalQuestionsCount(categories) > 0 ? (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-emerald-500 transition-all"
+                      style={{ width: `${Math.round((totalSolvedCount(categories) / totalQuestionsCount(categories)) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] tabular-nums">{totalSolvedCount(categories)}/{totalQuestionsCount(categories)}</span>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-2">
               {canCreateRootCategory ? (
-                <Button size="sm" variant="ghost" onClick={() => void addCategory("New Category")} disabled={isCreatingRootCategory}>
-                  {isCreatingRootCategory ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
+                <Button size="sm" variant="ghost" onClick={() => setPendingRootName("")}>
+                  <Plus className="h-4 w-4" /> Add
                 </Button>
               ) : null}
-              <Button className="h-8 w-8" size="icon" variant="ghost" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
-                {themeMounted ? (theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <Moon className="h-4 w-4" />}
+              <Button className="h-8 w-8" size="icon" variant="ghost" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
+                {themeMounted ? (resolvedTheme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <Moon className="h-4 w-4" />}
               </Button>
             </div>
           </div>
@@ -315,9 +381,13 @@ function countSubtreeQuestions(category: Category): number {
   );
 }
 
-function countSubcategories(category: Category): number {
-  return category.children.length + category.children.reduce((sum, child) => sum + countSubcategories(child), 0);
+function countSubtreeSolved(category: Category): number {
+  return (
+    category.questions.filter((q) => q.status === "SOLVED").length +
+    category.children.reduce((sum, child) => sum + countSubtreeSolved(child), 0)
+  );
 }
+
 
 function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Category; depth: number; sensors: ReturnType<typeof useSensors>; onDragEnd: (event: DragEndEvent, parentId: string | null) => void }) {
   const {
@@ -329,7 +399,6 @@ function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Categ
     updateCategoryName,
     updateCategoryVisibility,
     deleteCategory,
-    creatingCategoryKeys
   } = useWorkspaceStore();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: category.id,
@@ -338,20 +407,19 @@ function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Categ
   const expanded = expandedCategoryIds.includes(category.id);
   const active = selectedCategoryId === category.id;
   const questionCount = countSubtreeQuestions(category);
-  const subcategoryCount = countSubcategories(category);
-  const isCreatingChildCategory = creatingCategoryKeys.includes(category.id);
+  const solvedCount = countSubtreeSolved(category);
+  const [editing, setEditing] = useState(false);
+  const [pendingChildName, setPendingChildName] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  useEffect(() => {
+    if (!confirmingDelete) return;
+    const t = setTimeout(() => setConfirmingDelete(false), 3000);
+    return () => clearTimeout(t);
+  }, [confirmingDelete]);
 
   function handleDelete() {
-    const parts = [`Delete "${category.name}"?`];
-    if (category.children.length > 0) {
-      parts.push(`This will also remove ${category.children.length} sub-categor${category.children.length === 1 ? "y" : "ies"}.`);
-    }
-    if (questionCount > 0) {
-      parts.push(`This will also remove ${questionCount} question${questionCount === 1 ? "" : "s"}.`);
-    }
-    if (window.confirm(parts.join("\n\n"))) {
-      deleteCategory(category.id);
-    }
+    deleteCategory(category.id);
   }
 
   return (
@@ -393,80 +461,90 @@ function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Categ
                 <GripVertical className="h-4 w-4" />
               </button>
             ) : null}
-            {category.canEdit ? (
+            {category.canEdit && editing ? (
               <Input
+                autoFocus
                 value={category.name}
                 onChange={(event) => updateCategoryName(category.id, event.target.value)}
-                onFocus={() => selectCategory(category.id)}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  selectCategory(category.id);
-                }}
+                onBlur={() => setEditing(false)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") event.currentTarget.blur();
+                  if (event.key === "Enter" || event.key === "Escape") event.currentTarget.blur();
                 }}
-                title={category.name || "Untitled category"}
                 className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
-                aria-label={`Rename ${category.name}`}
-                placeholder="Untitled category"
+                placeholder="Category name"
               />
             ) : (
               <button
                 type="button"
                 onClick={() => selectCategory(category.id)}
-                title={category.name || "Untitled category"}
+                onDoubleClick={(e) => { if (category.canEdit) { e.preventDefault(); setEditing(true); } }}
+                title={category.canEdit ? `${category.name || "Untitled"} · Double-click to rename` : category.name}
                 className="h-7 min-w-0 flex-1 truncate text-left text-sm"
               >
                 {category.name || "Untitled category"}
               </button>
             )}
-            <span
-              className="ml-auto text-xs text-muted-foreground"
-              title={`${category.questions.length} direct · ${subcategoryCount} subcategories · ${questionCount} total`}
-            >
+            <span className="ml-auto text-xs text-muted-foreground" title={`${solvedCount}/${questionCount} solved`}>
               {questionCount}
             </span>
           </div>
-          <div className="hidden shrink-0 items-center group-hover:flex">
-          {category.canEdit ? (
-            <>
-              <Button
-                className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
-                size="icon"
-                variant="ghost"
-                onClick={() => updateCategoryVisibility(category.id, !category.isPublic)}
-                aria-label={category.isPublic ? `Make ${category.name} private` : `Make ${category.name} public`}
-                title={category.isPublic ? "Make private" : "Make public"}
+          {confirmingDelete ? (
+            <div className="ml-1 flex shrink-0 items-center gap-1 pr-1">
+              <span className="text-[11px] text-muted-foreground">Delete?</span>
+              <button
+                onClick={() => { handleDelete(); setConfirmingDelete(false); }}
+                className="rounded px-1.5 py-0.5 text-[11px] font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
               >
-                {category.isPublic ? <Globe2 className="h-3.5 w-3.5 text-accent" /> : <Lock className="h-3.5 w-3.5" />}
-              </Button>
-              <Button
-                className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
-                size="icon"
-                variant="ghost"
-                disabled={isCreatingChildCategory}
-                onClick={() => void addCategory("New Sub-category", category.id)}
-                aria-label={`Add sub-category to ${category.name}`}
-                title="Add sub-category"
+                Yes
+              </button>
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
               >
-                {isCreatingChildCategory ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-              </Button>
-              <Button
-                className="mr-1 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
-                size="icon"
-                variant="ghost"
-                onClick={handleDelete}
-                aria-label={`Delete ${category.name}`}
-                title="Delete category"
-              >
-                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-              </Button>
-            </>
-          ) : null}
-          </div>
+                No
+              </button>
+            </div>
+          ) : (
+            <div className="hidden shrink-0 items-center group-hover:flex">
+            {category.canEdit ? (
+              <>
+                <Button
+                  className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => updateCategoryVisibility(category.id, !category.isPublic)}
+                  aria-label={category.isPublic ? `Make ${category.name} private` : `Make ${category.name} public`}
+                  title={category.isPublic ? "Make private" : "Make public"}
+                >
+                  {category.isPublic ? <Globe2 className="h-3.5 w-3.5 text-accent" /> : <Lock className="h-3.5 w-3.5" />}
+                </Button>
+                <Button
+                  className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => { if (!expanded) toggleCategory(category.id); setPendingChildName(""); }}
+                  aria-label={`Add sub-category to ${category.name}`}
+                  title="Add sub-category"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  className="mr-1 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setConfirmingDelete(true)}
+                  aria-label={`Delete ${category.name}`}
+                  title={`Delete "${category.name}"`}
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                </Button>
+              </>
+            ) : null}
+            </div>
+          )}
         </div>
       </div>
-      {expanded && category.children.length > 0 ? (
+      {expanded && (category.children.length > 0 || pendingChildName !== null) ? (
         <div className="ml-5 border-l pl-1">
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => onDragEnd(event, category.id)}>
             <SortableContext items={category.children.map((child) => child.id)} strategy={verticalListSortingStrategy}>
@@ -481,6 +559,15 @@ function CategoryNode({ category, depth, sensors, onDragEnd }: { category: Categ
               ))}
             </SortableContext>
           </DndContext>
+          {pendingChildName !== null ? (
+            <PendingCategoryInput
+              value={pendingChildName}
+              onChange={setPendingChildName}
+              onCommit={() => { void addCategory(pendingChildName.trim(), category.id); setPendingChildName(null); }}
+              onCancel={() => setPendingChildName(null)}
+              depth={depth + 1}
+            />
+          ) : null}
         </div>
       ) : null}
     </div>

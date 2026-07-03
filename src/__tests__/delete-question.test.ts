@@ -20,7 +20,11 @@ vi.mock("@/lib/workspace-sync", () => ({
     deleteCategory: vi.fn(),
     deleteSolution: vi.fn(),
     reorderCategories: vi.fn(),
-    reorderQuestions: vi.fn()
+    reorderQuestions: vi.fn(),
+    createTag: vi.fn(),
+    deleteTag: vi.fn(),
+    addTagToQuestion: vi.fn(),
+    removeTagFromQuestion: vi.fn()
   }
 }));
 
@@ -52,7 +56,13 @@ function makeQuestion(id: string, categoryId: string, order = 0) {
     order,
     createdAt: NOW,
     updatedAt: NOW,
-    solutions: [{ id: `sol-${id}`, questionId: id, title: "Approach", language: "typescript" as const, content: "", notes: "", aiReview: null, order: 0, createdAt: NOW, updatedAt: NOW }]
+    solutions: [{ id: `sol-${id}`, questionId: id, title: "Approach", language: "typescript" as const, content: "", notes: "", aiReview: null, order: 0, createdAt: NOW, updatedAt: NOW }],
+    tags: [],
+    status: "NOT_STARTED" as const,
+    srDue: null,
+    srInterval: 1,
+    srEase: 2.5,
+    srReviews: 0
   };
 }
 

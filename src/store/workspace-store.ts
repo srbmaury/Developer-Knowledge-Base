@@ -5,8 +5,11 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { toast } from "sonner";
 import { workspaceSync } from "@/lib/workspace-sync";
 import { SAVE_DEBOUNCE_MS } from "@/lib/constants";
-import type { Category, Difficulty, Question, Solution, SolutionLanguage } from "@/types/knowledge";
+import MiniSearch from "minisearch";
+import { buildSearchIndex, questionToDoc } from "@/lib/search-index";
+import type { Category, Difficulty, Question, QuestionStatus, Solution, SolutionLanguage, Tag, TagColor } from "@/types/knowledge";
 import type { ReviewResult } from "@/lib/ai-answer";
+import type { SRGrade } from "@/lib/spaced-repetition";
 
 export type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
 
@@ -55,6 +58,21 @@ type WorkspaceState = {
   toggleFavorite: (questionId: string) => void;
   toggleImportant: (questionId: string) => void;
   updateSolutionAiReview: (solutionId: string, review: ReviewResult | null) => void;
+  updateQuestionStatus: (questionId: string, status: QuestionStatus) => void;
+  submitSpacedReview: (questionId: string, grade: SRGrade) => void;
+  searchIndex: MiniSearch | null;
+  rebuildSearchIndex: () => void;
+  filterStatus: QuestionStatus | null;
+  setStatusFilter: (status: QuestionStatus | null) => void;
+  allTags: Tag[];
+  filterTagIds: string[];
+  setAllTags: (tags: Tag[]) => void;
+  createTag: (name: string, color: TagColor) => Promise<Tag | null>;
+  deleteTag: (tagId: string) => void;
+  addTagToQuestion: (questionId: string, tagId: string) => void;
+  removeTagFromQuestion: (questionId: string, tagId: string) => void;
+  toggleTagFilter: (tagId: string) => void;
+  clearTagFilter: () => void;
 };
 
 function flattenQuestions(categories: Category[]): Question[] {
@@ -287,6 +305,19 @@ function reorderCategoriesInTree(
   });
 }
 
+let indexRebuildTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleIndexRebuild(categories: Category[], index: MiniSearch | null) {
+  if (!index) return;
+  if (indexRebuildTimer) clearTimeout(indexRebuildTimer);
+  indexRebuildTimer = setTimeout(() => {
+    const docs = flattenQuestions(categories).map(questionToDoc);
+    index.removeAll();
+    index.addAll(docs);
+    indexRebuildTimer = null;
+  }, 2000);
+}
+
 const contentSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const categoryNameSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const questionTitleSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -429,6 +460,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     (set, get) => ({
       defaultLanguage: "typescript",
       ...(setSaveStatus ??= (status: SaveStatus) => set({ saveStatus: status })),
+      searchIndex: null,
       categories: [],
       selectedCategoryId: null,
       selectedQuestionId: null,
@@ -463,12 +495,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             const maybeState = parsed?.state ?? parsed;
             if (maybeState && Array.isArray(maybeState.expandedCategoryIds)) persistedExpanded = maybeState.expandedCategoryIds;
           }
-        } catch (e) {
+        } catch {
           // ignore
         }
 
         set({
           categories,
+          searchIndex: buildSearchIndex(categories),
           questionIdToCategoryId,
           solutionIdToLocation,
           selectedCategoryId: selectedCategoryStillExists
@@ -643,6 +676,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           isFavorite: false,
           isPinned: false,
           order,
+          status: "NOT_STARTED",
+          srDue: null,
+          srInterval: 1,
+          srEase: 2.5,
+          srReviews: 0,
           createdAt: now,
           updatedAt: now,
           solutions: [
@@ -658,7 +696,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               createdAt: now,
               updatedAt: now
             }
-          ]
+          ],
+          tags: []
         };
 
         set((state) => ({
@@ -739,13 +778,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
       updateQuestionTitle: (questionId, title) => {
         if (!canEditQuestion(get().categories, questionId)) return;
-        set((state) => ({
-          categories: updateQuestionInTree(state.categories, questionId, (question) => ({
+        set((state) => {
+          const categories = updateQuestionInTree(state.categories, questionId, (question) => ({
             ...question,
             title,
             updatedAt: new Date().toISOString()
-          }))
-        }));
+          }));
+          const q = flattenQuestions(categories).find((item) => item.id === questionId);
+          if (q && state.searchIndex) {
+            try { state.searchIndex.discard(questionId); } catch { /* not indexed yet */ }
+            state.searchIndex.add(questionToDoc(q));
+          }
+          return { categories };
+        });
         scheduleQuestionTitleSave(questionId, title);
       },
       updateQuestionDescription: (questionId, description) => {
@@ -928,16 +973,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
       updateSolutionContent: (solutionId, content) => {
         if (!canEditSolution(get().categories, solutionId)) return;
-        set((state) => ({
-          categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, content }))
-        }));
+        set((state) => {
+          const categories = updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, content }));
+          scheduleIndexRebuild(categories, state.searchIndex);
+          return { categories };
+        });
         scheduleSolutionSave(solutionId, content);
       },
       updateSolutionNotes: (solutionId, notes) => {
         if (!canEditSolution(get().categories, solutionId)) return;
-        set((state) => ({
-          categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, notes }))
-        }));
+        set((state) => {
+          const categories = updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, notes }));
+          scheduleIndexRebuild(categories, state.searchIndex);
+          return { categories };
+        });
         scheduleSolutionNotesSave(solutionId, notes);
       },
       toggleFavorite: (questionId) => {
@@ -991,7 +1040,84 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, aiReview: review }))
         }));
         void workspaceSync.updateSolution(solutionId, { aiReview: review });
-      }
+      },
+      updateQuestionStatus: (questionId, status) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
+        set((state) => ({
+          categories: updateQuestionInTree(state.categories, questionId, (q) => ({ ...q, status }))
+        }));
+        void workspaceSync.updateQuestionStatus(questionId, status);
+      },
+      submitSpacedReview: (questionId, grade) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
+        void workspaceSync.submitSpacedReview(questionId, grade).then((result) => {
+          if (!result.ok || !("next" in result)) return;
+          const { next } = result;
+          set((state) => ({
+            categories: updateQuestionInTree(state.categories, questionId, (q) => ({
+              ...q,
+              srDue: next.due,
+              srInterval: next.interval,
+              srEase: next.ease,
+              srReviews: next.reviews
+            }))
+          }));
+        });
+      },
+      rebuildSearchIndex: () => {
+        set((state) => ({ searchIndex: buildSearchIndex(state.categories) }));
+      },
+      filterStatus: null,
+      setStatusFilter: (status) => set({ filterStatus: status }),
+      allTags: [],
+      filterTagIds: [],
+      setAllTags: (tags) => set({ allTags: tags }),
+      createTag: async (name, color) => {
+        const result = await workspaceSync.createTag(name, color);
+        if (!result.ok || !("id" in result)) return null;
+        const newTag: Tag = { id: result.id, name, color };
+        set((state) => ({ allTags: [...state.allTags, newTag].sort((a, b) => a.name.localeCompare(b.name)) }));
+        return newTag;
+      },
+      deleteTag: (tagId) => {
+        void workspaceSync.deleteTag(tagId);
+        set((state) => ({
+          allTags: state.allTags.filter((t) => t.id !== tagId),
+          filterTagIds: state.filterTagIds.filter((id) => id !== tagId),
+          categories: mapCategories(state.categories, (cat) => ({
+            ...cat,
+            questions: cat.questions.map((q) => ({ ...q, tags: q.tags.filter((t) => t.id !== tagId) }))
+          }))
+        }));
+      },
+      addTagToQuestion: (questionId, tagId) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
+        const tag = get().allTags.find((t) => t.id === tagId);
+        if (!tag) return;
+        set((state) => ({
+          categories: updateQuestionInTree(state.categories, questionId, (q) =>
+            q.tags.some((t) => t.id === tagId) ? q : { ...q, tags: [...q.tags, tag] }
+          )
+        }));
+        void workspaceSync.addTagToQuestion(questionId, tagId);
+      },
+      removeTagFromQuestion: (questionId, tagId) => {
+        if (!canEditQuestion(get().categories, questionId)) return;
+        set((state) => ({
+          categories: updateQuestionInTree(state.categories, questionId, (q) => ({
+            ...q,
+            tags: q.tags.filter((t) => t.id !== tagId)
+          }))
+        }));
+        void workspaceSync.removeTagFromQuestion(questionId, tagId);
+      },
+      toggleTagFilter: (tagId) =>
+        set((state) => ({
+          filterTagIds: state.filterTagIds.includes(tagId)
+            ? state.filterTagIds.filter((id) => id !== tagId)
+            : [...state.filterTagIds, tagId]
+        })),
+      clearTagFilter: () => set({ filterTagIds: [] })
     }),
     {
       name: "developer-knowledge-base-workspace",
@@ -1001,7 +1127,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         selectedCategoryId: state.selectedCategoryId,
         selectedQuestionId: state.selectedQuestionId,
         selectedSolutionId: state.selectedSolutionId,
-        expandedCategoryIds: state.expandedCategoryIds
+        expandedCategoryIds: state.expandedCategoryIds,
+        filterTagIds: state.filterTagIds
       })
     }
   )

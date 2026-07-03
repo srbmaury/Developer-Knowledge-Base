@@ -14,6 +14,7 @@ export default async function StarredPage() {
   return (
     <KnowledgeBaseApp
       initialCategories={filtered}
+      initialTags={data.tags}
       userEmail={user.email}
       workspaceTitle="Starred Notes"
       workspaceSubtitle="Your favorite notes"

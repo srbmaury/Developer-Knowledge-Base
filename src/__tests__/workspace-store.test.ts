@@ -19,7 +19,11 @@ vi.mock("@/lib/workspace-sync", () => ({
     deleteCategory: vi.fn(),
     deleteSolution: vi.fn().mockResolvedValue({ ok: true }),
     reorderCategories: vi.fn(),
-    reorderQuestions: vi.fn()
+    reorderQuestions: vi.fn(),
+    createTag: vi.fn(),
+    deleteTag: vi.fn(),
+    addTagToQuestion: vi.fn(),
+    removeTagFromQuestion: vi.fn()
   }
 }));
 
@@ -66,7 +70,13 @@ function makeQuestion(id: string, categoryId: string, order = 0, opts?: { isPinn
     order,
     createdAt: NOW,
     updatedAt: NOW,
-    solutions: [makeSolution(`sol-${id}`, id)]
+    solutions: [makeSolution(`sol-${id}`, id)],
+    tags: [],
+    status: "NOT_STARTED" as const,
+    srDue: null,
+    srInterval: 1,
+    srEase: 2.5,
+    srReviews: 0
   };
 }
 

@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AlertCircle, Bot, CheckCircle2, Copy, FileCode2, Lightbulb, Loader2, MessageSquare, Pin, Plus, Save, Star, Trash2, X } from "lucide-react";
 import type { ReviewResult } from "@/lib/ai-answer";
 import { toast } from "sonner";
-import { DIFFICULTIES, LANGUAGES } from "@/lib/constants";
+import { DIFFICULTIES, LANGUAGES, difficultyBadgeClass } from "@/lib/constants";
+import { TAG_COLOR_CLASSES, TAG_COLORS, TAG_DOT_CLASSES } from "@/lib/tag-colors";
+import { CheckCircle, Circle, Clock } from "lucide-react";
 import { workspaceSync } from "@/lib/workspace-sync";
 import { cn } from "@/lib/utils";
 import { getAllQuestions, getCategoryForQuestion, useWorkspaceStore } from "@/store/workspace-store";
-import type { Difficulty, SolutionLanguage } from "@/types/knowledge";
+import type { Difficulty, QuestionStatus, SolutionLanguage, Tag, TagColor } from "@/types/knowledge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,6 +26,9 @@ function isNewQuestion(question: Question, solution: Solution) {
 export function EditorPane() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [reviewingSolutionId, setReviewingSolutionId] = useState<string | null>(null);
+  const [justReviewedSolutionId, setJustReviewedSolutionId] = useState<string | null>(null);
+  const [reviewedSolutionIds, setReviewedSolutionIds] = useState(new Set<string>());
+  const [solutionToDelete, setSolutionToDelete] = useState<Solution | null>(null);
   const [contentView, setContentView] = useState<MarkdownViewMode>("preview");
   const previousQuestionId = useRef<string | null>(null);
   const {
@@ -42,9 +48,13 @@ export function EditorPane() {
     toggleFavorite,
     toggleImportant,
     creatingSolutionQuestionIds,
-    creatingQuestionCategoryIds,
     saveStatus,
-    updateSolutionAiReview
+    updateSolutionAiReview,
+    updateQuestionStatus,
+    allTags,
+    addTagToQuestion,
+    removeTagFromQuestion,
+    createTag
   } = useWorkspaceStore();
   const question = getAllQuestions(categories).find((item) => item.id === selectedQuestionId);
   const solution = question?.solutions.find((item) => item.id === selectedSolutionId) ?? question?.solutions[0];
@@ -70,6 +80,7 @@ export function EditorPane() {
 
     if (previousQuestionId.current !== selectedQuestionId) {
       previousQuestionId.current = selectedQuestionId;
+      setJustReviewedSolutionId(null);
       setContentView(isNewQuestion(question, solution) ? "editor" : "preview");
 
       if (isNewQuestion(question, solution)) {
@@ -163,6 +174,8 @@ export function EditorPane() {
       }
 
       updateSolutionAiReview(targetId, data);
+      setJustReviewedSolutionId(targetId);
+      setReviewedSolutionIds((prev) => new Set([...prev, targetId]));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to review the answer.");
     } finally {
@@ -216,21 +229,28 @@ export function EditorPane() {
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               <SaveStatusIndicator status={saveStatus} />
 
-              <select
-                value={question.difficulty}
-                onChange={(event) =>
-                  updateQuestionDifficulty(question.id, event.target.value as Difficulty)
-                }
-                disabled={!canEdit}
-                className="h-9 rounded-md border bg-background px-3 text-sm shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+              <div
+                className="flex overflow-hidden rounded-md border shadow-sm"
+                role="group"
                 aria-label="Question difficulty"
               >
                 {DIFFICULTIES.map((level) => (
-                  <option key={level.value} value={level.value}>
+                  <button
+                    key={level.value}
+                    type="button"
+                    disabled={!canEdit}
+                    onClick={() => updateQuestionDifficulty(question.id, level.value as Difficulty)}
+                    className={cn(
+                      "border-r px-3 py-1.5 text-xs font-medium last:border-r-0 transition-colors disabled:cursor-default",
+                      question.difficulty === level.value
+                        ? difficultyBadgeClass(level.value)
+                        : "bg-background text-muted-foreground enabled:hover:bg-muted"
+                    )}
+                  >
                     {level.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
+              </div>
 
               {canEdit ? (
                 <>
@@ -288,6 +308,41 @@ export function EditorPane() {
               placeholder="Add a short description"
             />
           </div>
+
+          {/* Status + Tags Row */}
+          {(canEdit || question.tags.length > 0) ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {canEdit ? (
+                <StatusCycleButton
+                  status={question.status}
+                  onChange={(s) => updateQuestionStatus(question.id, s)}
+                />
+              ) : null}
+              {question.tags.map((tag) => (
+                <span key={tag.id} className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium", TAG_COLOR_CLASSES[tag.color])}>
+                  {tag.name}
+                  {canEdit ? (
+                    <button
+                      onClick={() => removeTagFromQuestion(question.id, tag.id)}
+                      className="ml-0.5 rounded-full opacity-60 hover:opacity-100 transition-opacity"
+                      aria-label={`Remove tag ${tag.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  ) : null}
+                </span>
+              ))}
+              {canEdit ? (
+                <TagManagerButton
+                  questionId={question.id}
+                  questionTags={question.tags}
+                  allTags={allTags}
+                  onCreate={createTag}
+                  onAdd={addTagToQuestion}
+                />
+              ) : null}
+            </div>
+          ) : null}
         </div>
         </div>
 
@@ -339,7 +394,11 @@ export function EditorPane() {
                 {reviewingSolutionId === solution.id
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : <MessageSquare className="h-4 w-4" />}
-                {reviewingSolutionId === solution.id ? "Reviewing…" : "Review"}
+                {reviewingSolutionId === solution.id
+                  ? "Reviewing…"
+                  : reviewedSolutionIds.has(solution.id)
+                  ? "Re-review"
+                  : "Review"}
               </Button>
                 </>
               ) : null}
@@ -403,9 +462,7 @@ export function EditorPane() {
                           }
                           onClick={() => {
                             if (question.solutions.length <= 1) return;
-                            if (window.confirm(`Delete "${item.title}"?`)) {
-                              void deleteSolution(item.id);
-                            }
+                            setSolutionToDelete(item);
                           }}
                           aria-label="Delete approach"
                         >
@@ -445,7 +502,11 @@ export function EditorPane() {
                 ) : item.aiReview ? (
                   <ReviewPanel
                     review={item.aiReview}
-                    onDismiss={() => updateSolutionAiReview(item.id, null)}
+                    autoScroll={justReviewedSolutionId === item.id}
+                    onDismiss={() => {
+                      if (justReviewedSolutionId === item.id) setJustReviewedSolutionId(null);
+                      updateSolutionAiReview(item.id, null);
+                    }}
                   />
                 ) : null}
               </section>
@@ -453,6 +514,27 @@ export function EditorPane() {
           ))}
         </Tabs>
       </div>
+
+      <Dialog open={solutionToDelete !== null} onOpenChange={(open) => { if (!open) setSolutionToDelete(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogTitle className="text-base font-semibold">Delete approach?</DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">&ldquo;{solutionToDelete?.title}&rdquo;</span> and all its content will be permanently removed.
+          </p>
+          <div className="mt-2 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setSolutionToDelete(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (solutionToDelete) void deleteSolution(solutionToDelete.id);
+                setSolutionToDelete(null);
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </article>
   );
 }
@@ -469,11 +551,13 @@ const RATING_LABEL: Record<ReviewResult["rating"], string> = {
   poor: "Poor"
 };
 
-function ReviewPanel({ review, onDismiss }: { review: ReviewResult; onDismiss: () => void }) {
+function ReviewPanel({ review, autoScroll, onDismiss }: { review: ReviewResult; autoScroll: boolean; onDismiss: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (autoScroll) ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // autoScroll is intentionally read only at mount time
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -505,6 +589,175 @@ function ReviewPanel({ review, onDismiss }: { review: ReviewResult; onDismiss: (
             </li>
           ))}
         </ul>
+      ) : null}
+    </div>
+  );
+}
+
+const STATUS_CONFIG: Record<QuestionStatus, { label: string; icon: React.ReactNode; className: string }> = {
+  NOT_STARTED: {
+    label: "Not started",
+    icon: <Circle className="h-3 w-3" />,
+    className: "text-muted-foreground border-muted-foreground/30 hover:border-muted-foreground/60"
+  },
+  IN_PROGRESS: {
+    label: "In progress",
+    icon: <Clock className="h-3 w-3 text-amber-500" />,
+    className: "text-amber-600 border-amber-400/50 hover:border-amber-500 dark:text-amber-400"
+  },
+  SOLVED: {
+    label: "Solved",
+    icon: <CheckCircle className="h-3 w-3 text-emerald-500" />,
+    className: "text-emerald-600 border-emerald-400/50 hover:border-emerald-500 dark:text-emerald-400"
+  }
+};
+
+const STATUS_CYCLE: QuestionStatus[] = ["NOT_STARTED", "IN_PROGRESS", "SOLVED"];
+
+function StatusCycleButton({ status, onChange }: { status: QuestionStatus; onChange: (s: QuestionStatus) => void }) {
+  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG["NOT_STARTED"];
+  const safeStatus: QuestionStatus = STATUS_CONFIG[status] ? status : "NOT_STARTED";
+  function next() {
+    const idx = STATUS_CYCLE.indexOf(safeStatus);
+    onChange(STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length]);
+  }
+  return (
+    <button
+      onClick={next}
+      className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors", config.className)}
+      title={`Status: ${config.label} — click to change`}
+    >
+      {config.icon}
+      {config.label}
+    </button>
+  );
+}
+
+function TagManagerButton({
+  questionId,
+  questionTags,
+  allTags,
+  onCreate,
+  onAdd
+}: {
+  questionId: string;
+  questionTags: Tag[];
+  allTags: Tag[];
+  onCreate: (name: string, color: TagColor) => Promise<Tag | null>;
+  onAdd: (questionId: string, tagId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState<TagColor>("blue");
+  const [creating, setCreating] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const assignedIds = new Set(questionTags.map((t) => t.id));
+  const available = allTags.filter(
+    (t) => !assignedIds.has(t.id) && t.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  async function handleCreate() {
+    if (!newName.trim()) return;
+    setCreating(true);
+    const tag = await onCreate(newName.trim(), newColor);
+    if (tag) {
+      onAdd(questionId, tag.id);
+      setNewName("");
+      setNewColor("blue");
+      setOpen(false);
+    }
+    setCreating(false);
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 rounded-full border border-dashed px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+      >
+        <Plus className="h-3 w-3" /> Tag
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border bg-card p-2 shadow-lg">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search tags…"
+            className="mb-2 h-7 text-xs"
+            autoFocus
+          />
+          {available.length > 0 ? (
+            <div className="mb-2 max-h-40 space-y-0.5 overflow-y-auto">
+              {available.map((tag) => (
+                <button
+                  key={tag.id}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted"
+                  onClick={() => {
+                    onAdd(questionId, tag.id);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                >
+                  <span className={cn("h-2 w-2 shrink-0 rounded-full", TAG_DOT_CLASSES[tag.color])} />
+                  {tag.name}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mb-2 px-2 text-xs text-muted-foreground">
+              {search ? "No matching tags" : assignedIds.size === allTags.length ? "All tags applied" : null}
+            </p>
+          )}
+          <div className="border-t pt-2">
+            <p className="mb-1.5 px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">New tag</p>
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Tag name"
+              className="mb-2 h-7 text-xs"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleCreate();
+              }}
+            />
+            <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+              {TAG_COLORS.map((color) => (
+                <button
+                  key={color}
+                  className={cn(
+                    "h-4 w-4 rounded-full transition-transform hover:scale-110",
+                    TAG_DOT_CLASSES[color],
+                    newColor === color && "ring-2 ring-primary ring-offset-1"
+                  )}
+                  onClick={() => setNewColor(color)}
+                  title={color}
+                />
+              ))}
+            </div>
+            <Button
+              size="sm"
+              className="h-7 w-full text-xs"
+              disabled={!newName.trim() || creating}
+              onClick={() => void handleCreate()}
+            >
+              {creating ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+              Create & add
+            </Button>
+          </div>
+        </div>
       ) : null}
     </div>
   );

@@ -1,13 +1,13 @@
 import { unstable_cache } from "next/cache";
-import { buildCategoryTree } from "@/lib/mappers";
+import { buildCategoryTree, mapTag } from "@/lib/mappers";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, requireUserId } from "@/server/auth";
 import { questionListOrderBy } from "@/server/question-order";
-import type { Category } from "@/types/knowledge";
+import type { Category, Tag } from "@/types/knowledge";
 
 const questionInclude = {
   questions: {
-    include: { solutions: true },
+    include: { solutions: true, tags: true },
     orderBy: questionListOrderBy
   }
 } as const;
@@ -17,23 +17,26 @@ export async function getWorkspaceData() {
 
   return unstable_cache(
     async (uid: string) => {
-      const rows = await prisma.category.findMany({
-        where: { userId: uid },
-        include: questionInclude,
-        orderBy: { order: "asc" }
-      });
+      const [rows, tagRows] = await Promise.all([
+        prisma.category.findMany({
+          where: { userId: uid },
+          include: questionInclude,
+          orderBy: { order: "asc" }
+        }),
+        prisma.tag.findMany({ where: { userId: uid }, orderBy: { name: "asc" } })
+      ]);
 
-      // First visit: bootstrap a default category so the workspace is never empty.
-      // Runs inside the cache so subsequent requests skip this entirely.
+      const tags: Tag[] = tagRows.map(mapTag);
+
       if (rows.length === 0) {
         const defaultCat = await prisma.category.create({
           data: { userId: uid, name: "Getting Started", order: 0 },
           include: questionInclude
         });
-        return { categories: buildCategoryTree([defaultCat], uid) };
+        return { categories: buildCategoryTree([defaultCat], uid), tags };
       }
 
-      return { categories: buildCategoryTree(rows, uid) };
+      return { categories: buildCategoryTree(rows, uid), tags };
     },
     ["workspace", userId],
     { tags: [`workspace:${userId}`], revalidate: false }
@@ -48,7 +51,7 @@ const fetchPublicCategories = unstable_cache(
       where: { isPublic: true },
       include: {
         questions: {
-          include: { solutions: true },
+          include: { solutions: true, tags: true },
           orderBy: questionListOrderBy
         }
       },

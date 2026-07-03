@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useHotkeys, useSequenceHotkey } from "@/components/use-hotkeys";
+import { useHotkeys, useSequenceHotkey, useSingleHotkey } from "@/components/use-hotkeys";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { CommandPalette } from "@/components/command-palette";
 import { EditorPane } from "@/components/editor-pane";
 import { QuestionList } from "@/components/question-list";
@@ -10,11 +11,12 @@ import { Sidebar } from "@/components/sidebar";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getCategoryById, useWorkspaceStore } from "@/store/workspace-store";
-import type { Category } from "@/types/knowledge";
+import type { Category, Tag } from "@/types/knowledge";
 import { ListCollapse, Loader2, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Search } from "lucide-react";
 
 export function KnowledgeBaseApp({
   initialCategories,
+  initialTags,
   userEmail,
   workspaceTitle = "Developer Knowledge Base",
   workspaceSubtitle = "Your private workspace",
@@ -22,6 +24,7 @@ export function KnowledgeBaseApp({
   emptyMessage
 }: {
   initialCategories: Category[];
+  initialTags?: Tag[];
   userEmail: string | null;
   workspaceTitle?: string;
   workspaceSubtitle?: string;
@@ -32,6 +35,7 @@ export function KnowledgeBaseApp({
   const {
     categories,
     setInitialData,
+    setAllTags,
     setCommandOpen,
     selectedCategoryId,
     addQuestion,
@@ -39,6 +43,9 @@ export function KnowledgeBaseApp({
   } = useWorkspaceStore();
   const [categoriesOpen, setCategoriesOpen] = useState(true);
   const [questionsOpen, setQuestionsOpen] = useState(true);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [isMac, setIsMac] = useState(false);
+  useEffect(() => { setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.platform)); }, []);
   const [categoriesWidth, setCategoriesWidth] = useState(288);
   const [questionsWidth, setQuestionsWidth] = useState(320);
   const [resizing, setResizing] = useState<"categories" | "questions" | null>(null);
@@ -56,8 +63,13 @@ export function KnowledgeBaseApp({
     setInitialData(initialCategories);
   }, [initialCategories, setInitialData]);
 
+  useEffect(() => {
+    if (initialTags) setAllTags(initialTags);
+  }, [initialTags, setAllTags]);
+
   useHotkeys("ctrl+k", () => setCommandOpen(true));
   useHotkeys("meta+k", () => setCommandOpen(true));
+  useSingleHotkey("?", () => setShortcutsOpen(true));
 
   // g → h/m/s/p navigation (GitHub-style, ignored when an input is focused)
   useSequenceHotkey("g", "h", () => router.push("/"));
@@ -195,7 +207,7 @@ export function KnowledgeBaseApp({
             >
               <Search className="h-4 w-4 shrink-0" />
               <span className="truncate">Search questions, snippets, categories...</span>
-              <kbd className="ml-auto hidden rounded border bg-muted px-1.5 py-0.5 text-[10px] sm:inline">Ctrl K</kbd>
+              <kbd className="ml-auto hidden rounded border bg-muted px-1.5 py-0.5 text-[10px] sm:inline">{isMac ? "⌘K" : "Ctrl K"}</kbd>
             </button>
             {canEditSelectedCategory ? (
               <Button
@@ -220,6 +232,30 @@ export function KnowledgeBaseApp({
           </div>
         </section>
         <CommandPalette />
+        <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogTitle className="text-base font-semibold">Keyboard shortcuts</DialogTitle>
+            <div className="space-y-1 text-sm">
+              {[
+                { keys: isMac ? ["⌘", "K"] : ["Ctrl", "K"], label: "Open search" },
+                { keys: ["g", "h"], label: "Go to Home" },
+                { keys: ["g", "m"], label: "Go to Most Viewed" },
+                { keys: ["g", "s"], label: "Go to Starred" },
+                { keys: ["g", "p"], label: "Go to Public" },
+                { keys: ["?"], label: "Show shortcuts" },
+              ].map(({ keys, label }) => (
+                <div key={label} className="flex items-center justify-between gap-4 rounded-md px-2 py-1.5 hover:bg-muted">
+                  <span className="text-muted-foreground">{label}</span>
+                  <div className="flex items-center gap-1">
+                    {keys.map((k) => (
+                      <kbd key={k} className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[11px]">{k}</kbd>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
         {canEditSelectedCategory ? (
           <Button
             className="fixed bottom-5 right-5 z-40 h-12 w-12 rounded-full shadow-soft sm:hidden"

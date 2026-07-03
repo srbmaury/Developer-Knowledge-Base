@@ -43,12 +43,31 @@ model Question {
   isPinned    Boolean    @default(false)
   order       Int        @default(0)
   solutions   Solution[]
+  tags        Tag[]
+  status      String     @default("NOT_STARTED")
+  srDue       DateTime?
+  srInterval  Int        @default(1)
+  srEase      Float      @default(2.5)
+  srReviews   Int        @default(0)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
   @@index([categoryId])
   @@index([categoryId, isPinned, order])
   @@index([isFavorite])
+  @@index([srDue])
+}
+
+model Tag {
+  id        String     @id @default(cuid())
+  userId    String
+  name      String
+  color     String     @default("blue")
+  questions Question[]
+  createdAt DateTime   @default(now())
+
+  @@unique([userId, name])
+  @@index([userId])
 }
 
 model Solution {

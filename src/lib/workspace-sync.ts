@@ -1,19 +1,26 @@
 import {
+  addTagToQuestionAction,
   createCategoryAction,
   createQuestionAction,
   createSolutionAction,
+  createTagAction,
   deleteCategoryAction,
   deleteQuestionAction,
   deleteSolutionAction,
+  deleteTagAction,
   reorderCategoriesAction,
   reorderQuestionsAction,
+  removeTagFromQuestionAction,
+  submitSpacedReviewAction,
   updateCategoryAction,
   updateCategoryVisibilityAction,
   updateQuestionAction,
+  updateQuestionStatusAction,
   updateSolutionAction
 } from "@/app/actions";
-import type { Difficulty, SolutionLanguage } from "@/types/knowledge";
+import type { Difficulty, QuestionStatus, SolutionLanguage, TagColor } from "@/types/knowledge";
 import type { ReviewResult } from "@/lib/ai-answer";
+import type { SRGrade } from "@/lib/spaced-repetition";
 
 type QuestionPatch = {
   title?: string;
@@ -54,5 +61,15 @@ export const workspaceSync = {
   updateSolution: (
     solutionId: string,
     patch: { title?: string; language?: SolutionLanguage; content?: string; notes?: string; aiReview?: ReviewResult | null }
-  ) => updateSolutionAction({ solutionId, ...patch })
+  ) => updateSolutionAction({ solutionId, ...patch }),
+
+  createTag: (name: string, color: TagColor) => createTagAction({ name, color }),
+  deleteTag: (tagId: string) => deleteTagAction({ tagId }),
+  addTagToQuestion: (questionId: string, tagId: string) => addTagToQuestionAction({ questionId, tagId }),
+  removeTagFromQuestion: (questionId: string, tagId: string) => removeTagFromQuestionAction({ questionId, tagId }),
+
+  updateQuestionStatus: (questionId: string, status: QuestionStatus) =>
+    updateQuestionStatusAction({ questionId, status }),
+  submitSpacedReview: (questionId: string, grade: SRGrade) =>
+    submitSpacedReviewAction({ questionId, grade })
 };
