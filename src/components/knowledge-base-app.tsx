@@ -17,16 +17,21 @@ import { getCategoryById, useWorkspaceStore } from "@/store/workspace-store";
 import type { Category, Tag } from "@/types/knowledge";
 import { ListCollapse, Loader2, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, Search } from "lucide-react";
 
+const MOBILE_DRAWER_CLASS =
+  "left-0 top-0 h-full max-w-[85vw] w-80 -translate-x-0 -translate-y-0 rounded-none border-y-0 border-l-0 p-0";
+
 export function KnowledgeBaseApp({
   initialCategories,
   initialTags,
   userEmail,
+  isAdmin = false,
   canCreateRootCategory = true,
   emptyMessage
 }: {
   initialCategories: Category[];
   initialTags?: Tag[];
   userEmail: string | null;
+  isAdmin?: boolean;
   canCreateRootCategory?: boolean;
   emptyMessage?: string;
 }) {
@@ -39,11 +44,14 @@ export function KnowledgeBaseApp({
     setShortcutsOpen,
     shortcutsOpen,
     selectedCategoryId,
+    selectedQuestionId,
     addQuestion,
     creatingQuestionCategoryIds
   } = useWorkspaceStore();
   const [categoriesOpen, setCategoriesOpen] = useState(true);
   const [questionsOpen, setQuestionsOpen] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [mobileQuestionsOpen, setMobileQuestionsOpen] = useState(false);
   const [isMac, setIsMac] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [focusHintVisible, setFocusHintVisible] = useState(false);
@@ -70,6 +78,10 @@ export function KnowledgeBaseApp({
   useEffect(() => {
     if (initialTags) setAllTags(initialTags);
   }, [initialTags, setAllTags]);
+
+  // Auto-close the mobile drawers once the user has made a selection from them
+  useEffect(() => { setMobileSidebarOpen(false); }, [selectedCategoryId]);
+  useEffect(() => { setMobileQuestionsOpen(false); }, [selectedQuestionId]);
 
   useHotkeys("ctrl+k", () => setCommandOpen(true));
   useHotkeys("meta+k", () => setCommandOpen(true));
@@ -162,7 +174,7 @@ export function KnowledgeBaseApp({
   return (
     <TooltipProvider>
       <div className="flex h-screen flex-col overflow-hidden bg-background/85 text-foreground">
-        {!focusMode ? <TopNav userEmail={userEmail} /> : null}
+        {!focusMode ? <TopNav userEmail={userEmail} isAdmin={isAdmin} /> : null}
         <main ref={containerRef} className="flex flex-1 min-h-0 overflow-hidden">
         {!focusMode && categoriesOpen ? (
           <>
@@ -205,6 +217,16 @@ export function KnowledgeBaseApp({
             <Button
               variant="ghost"
               size="icon"
+              className="md:hidden"
+              onClick={() => setMobileSidebarOpen(true)}
+              aria-label="Open categories"
+              title="Categories"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               className="hidden md:inline-flex"
               onClick={() => setCategoriesOpen((open) => !open)}
               aria-label={categoriesOpen ? "Collapse sidebar" : "Expand sidebar"}
@@ -222,7 +244,14 @@ export function KnowledgeBaseApp({
             >
               {questionsOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
             </Button>
-            <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Questions" title="Questions">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden"
+              onClick={() => setMobileQuestionsOpen(true)}
+              aria-label="Open question list"
+              title="Questions"
+            >
               <ListCollapse className="h-4 w-4" />
             </Button>
             <button
@@ -259,6 +288,21 @@ export function KnowledgeBaseApp({
         </section>
         <CommandPalette />
         <QuickCaptureModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
+        <Dialog open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+          <DialogContent className={MOBILE_DRAWER_CLASS}>
+            <DialogTitle className="sr-only">Categories</DialogTitle>
+            <Sidebar
+              canCreateRootCategory={canCreateRootCategory}
+              onCollapse={() => setMobileSidebarOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
+        <Dialog open={mobileQuestionsOpen} onOpenChange={setMobileQuestionsOpen}>
+          <DialogContent className={MOBILE_DRAWER_CLASS}>
+            <DialogTitle className="sr-only">Questions</DialogTitle>
+            <QuestionList onCollapse={() => setMobileQuestionsOpen(false)} emptyMessage={emptyMessage} />
+          </DialogContent>
+        </Dialog>
         <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
           <DialogContent className="max-w-sm">
             <DialogTitle className="text-base font-semibold">Keyboard shortcuts</DialogTitle>

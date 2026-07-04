@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   DndContext,
   KeyboardSensor,
@@ -15,17 +16,12 @@ import {
   SortableContext,
   arrayMove,
   sortableKeyboardCoordinates,
-  useSortable,
   verticalListSortingStrategy
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { ArrowUpDown, Check, CheckSquare, Download, Filter, FolderInput, GripVertical, Loader2, MoreHorizontal, PanelRightClose, Pin, Plus, Square, Star, Trash2, Upload, X } from "lucide-react";
+import { Check, CheckSquare, Download, FolderInput, Loader2, MoreHorizontal, PanelRightClose, Plus, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
-import { DIFFICULTIES, difficultyBadgeClass } from "@/lib/constants";
-import { TAG_COLOR_CLASSES, TAG_DOT_CLASSES } from "@/lib/tag-colors";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn, formatRelativeDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   getAllQuestions,
   getCategoryById,
@@ -33,357 +29,13 @@ import {
   sortQuestionsForDisplay,
   useWorkspaceStore
 } from "@/store/workspace-store";
-import type { Category, Question, QuestionStatus, Tag } from "@/types/knowledge";
+import type { Question, QuestionStatus } from "@/types/knowledge";
 import { parseMarkdownFile, exportWorkspaceToZip } from "@/lib/workspace-io";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-
-function flatCategoryList(cats: Category[], parentPath = ""): Array<{ id: string; name: string; path: string; canEdit: boolean }> {
-  return cats.flatMap((cat) => {
-    const full = parentPath ? `${parentPath} / ${cat.name}` : cat.name;
-    return [{ id: cat.id, name: cat.name, path: parentPath, canEdit: cat.canEdit }, ...flatCategoryList(cat.children, full)];
-  });
-}
-
-
-function CategoryPickerDialog({
-  open,
-  excludeId,
-  categories,
-  onSelect,
-  onClose
-}: {
-  open: boolean;
-  excludeId?: string | null;
-  categories: Category[];
-  onSelect: (categoryId: string) => void;
-  onClose: () => void;
-}) {
-  const [search, setSearch] = useState("");
-  const flat = flatCategoryList(categories).filter((c) => c.canEdit && c.id !== excludeId);
-  const filtered = search.trim()
-    ? flat.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
-    : flat;
-  useEffect(() => { if (!open) setSearch(""); }, [open]);
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-sm">
-        <DialogTitle className="text-base font-semibold">Move to category</DialogTitle>
-        <Input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search categories…" className="mb-1" />
-        <div className="max-h-64 overflow-y-auto space-y-0.5 rounded-md border p-1">
-          {filtered.length === 0 ? (
-            <p className="px-3 py-4 text-center text-sm text-muted-foreground">No categories found</p>
-          ) : filtered.map((c) => (
-            <button key={c.id} onClick={() => { onSelect(c.id); onClose(); }}
-              className="flex w-full flex-col rounded-md px-3 py-2 text-left text-sm hover:bg-muted">
-              <span className="font-medium">{c.name}</span>
-              {c.path ? <span className="text-xs text-muted-foreground">{c.path}</span> : null}
-            </button>
-          ))}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function isInputFocused() {
-  const el = document.activeElement;
-  if (!el) return false;
-  const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
-}
-
-const SORT_OPTIONS = [
-  { value: "default", label: "Default" },
-  { value: "title-asc", label: "Title A–Z" },
-  { value: "title-desc", label: "Title Z–A" },
-  { value: "newest", label: "Recently updated" },
-  { value: "oldest", label: "Oldest first" },
-] as const;
-type SortOption = typeof SORT_OPTIONS[number]["value"];
-
-function sortWithinGroup(qs: Question[], sort: SortOption): Question[] {
-  if (sort === "default") return qs;
-  const sorted = [...qs];
-  switch (sort) {
-    case "title-asc": return sorted.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-    case "title-desc": return sorted.sort((a, b) => (b.title || "").localeCompare(a.title || ""));
-    case "newest": return sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-    case "oldest": return sorted.sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
-  }
-}
-
-function SortDropdown({ sort, onChange }: { sort: SortOption; onChange: (s: SortOption) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const active = sort !== "default";
-  const activeLabel = SORT_OPTIONS.find((o) => o.value === sort)?.label;
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className={cn(
-          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all",
-          active
-            ? "bg-primary/10 text-primary ring-2 ring-primary ring-offset-1"
-            : "bg-muted text-muted-foreground hover:text-foreground"
-        )}
-      >
-        <ArrowUpDown className="h-3 w-3" />
-        {active ? activeLabel : "Sort"}
-      </button>
-      {open ? (
-        <div className="absolute left-0 top-full z-50 mt-1 min-w-44 rounded-lg border bg-card p-1 shadow-lg">
-          {SORT_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              onClick={() => { onChange(option.value); setOpen(false); }}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
-                sort === option.value ? "bg-primary/10 text-primary" : "hover:bg-muted"
-              )}
-            >
-              <span className="flex-1 text-left font-medium">{option.label}</span>
-              {sort === option.value ? <span className="text-[10px] font-bold">✓</span> : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-const STATUS_LABELS: Record<QuestionStatus, string> = {
-  NOT_STARTED: "Not started",
-  IN_PROGRESS: "In progress",
-  SOLVED: "Solved"
-};
-
-const STATUS_CLASSES: Record<QuestionStatus, string> = {
-  NOT_STARTED: "bg-muted text-muted-foreground",
-  IN_PROGRESS: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  SOLVED: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-};
-
-function TagFilterDropdown({
-  allTags,
-  filterTagIds,
-  toggleTagFilter,
-  clearTagFilter
-}: {
-  allTags: Tag[];
-  filterTagIds: string[];
-  toggleTagFilter: (id: string) => void;
-  clearTagFilter: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  if (allTags.length === 0) return null;
-  const activeCount = filterTagIds.length;
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className={cn(
-          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all",
-          activeCount > 0
-            ? "bg-primary/10 text-primary ring-2 ring-primary ring-offset-1"
-            : "bg-muted text-muted-foreground hover:text-foreground"
-        )}
-      >
-        <Filter className="h-3 w-3" />
-        Tags
-        {activeCount > 0 ? (
-          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
-            {activeCount}
-          </span>
-        ) : null}
-      </button>
-      {open ? (
-        <div className="absolute left-0 top-full z-50 mt-1 min-w-48 rounded-lg border bg-card p-1 shadow-lg">
-          {allTags.map((tag) => {
-            const active = filterTagIds.includes(tag.id);
-            return (
-              <button
-                key={tag.id}
-                onClick={() => toggleTagFilter(tag.id)}
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition-colors",
-                  active ? "bg-primary/10 text-primary" : "hover:bg-muted"
-                )}
-              >
-                <span className={cn("h-2 w-2 shrink-0 rounded-full", TAG_DOT_CLASSES[tag.color])} />
-                <span className="flex-1 text-left font-medium">{tag.name}</span>
-                {active ? <span className="text-[10px] font-bold">✓</span> : null}
-              </button>
-            );
-          })}
-          {activeCount > 0 ? (
-            <div className="mt-1 border-t pt-1">
-              <button
-                onClick={() => { clearTagFilter(); setOpen(false); }}
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <X className="h-3 w-3" /> Clear tag filters
-              </button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function stopDragPointer(event: React.PointerEvent) {
-  event.stopPropagation();
-}
-
-
-function SortableQuestionCard({
-  question,
-  compact,
-  selected,
-  bulkSelected,
-  bulkMode,
-  canEdit,
-  categoryLabel,
-  onSelect,
-  onDelete,
-  onBulkToggle
-}: {
-  question: Question;
-  compact: boolean;
-  selected: boolean;
-  bulkSelected?: boolean;
-  bulkMode?: boolean;
-  canEdit: boolean;
-  categoryLabel?: string;
-  onSelect: () => void;
-  onDelete: () => void;
-  onBulkToggle?: () => void;
-}) {
-  const isTemp = question.id.startsWith("temp-");
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: question.id,
-    disabled: !canEdit
-  });
-  const difficulty = DIFFICULTIES.find((item) => item.value === question.difficulty);
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, touchAction: "none" }}
-      className={cn(
-        "group relative w-full rounded-lg border bg-card p-3 text-left shadow-sm transition-[box-shadow,border-color] hover:border-primary/40 hover:shadow-md",
-        selected && "border-primary/60 ring-1 ring-primary/30",
-        isDragging && "z-10 border-primary/50 opacity-90 shadow-lg",
-        compact && "min-w-72 shrink-0",
-        isTemp && "cursor-default opacity-60"
-      )}
-      {...(canEdit ? attributes : {})}
-      {...(canEdit ? listeners : {})}
-    >
-      {bulkMode ? (
-        <div className="absolute left-2 top-3 flex h-7 w-5 items-center justify-center" onClick={(e) => { e.stopPropagation(); onBulkToggle?.(); }}>
-          {bulkSelected
-            ? <CheckSquare className="h-4 w-4 text-primary" />
-            : <Square className="h-4 w-4 text-muted-foreground" />}
-        </div>
-      ) : canEdit ? (
-        <div
-          className="absolute left-2 top-3 flex h-7 w-5 cursor-grab items-center justify-center text-muted-foreground/50 group-hover:text-muted-foreground active:cursor-grabbing"
-          aria-hidden
-        >
-          <GripVertical className="h-4 w-4" />
-        </div>
-      ) : null}
-
-      <div
-        role="button"
-        tabIndex={0}
-        className="w-full cursor-pointer pl-7 text-left"
-        title={`${question.title || "Untitled question"}${question.description ? ` - ${question.description}` : ""}`}
-        onClick={bulkMode ? onBulkToggle : onSelect}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            if (bulkMode) {
-              onBulkToggle?.();
-            } else {
-              onSelect();
-            }
-          }
-        }}
-      >
-        <div className="flex items-start gap-2 pr-8">
-          <div className="min-w-0 flex-1">
-            {categoryLabel ? (
-              <p className="mb-0.5 truncate text-[10px] text-muted-foreground/60">{categoryLabel}</p>
-            ) : null}
-            <div className="flex flex-wrap items-center gap-1.5">
-              {question.isPinned ? <Pin className="h-3.5 w-3.5 text-accent" /> : null}
-              <p className="line-clamp-2 text-sm font-semibold" title={question.title || "Untitled question"}>{question.title || "Untitled question"}</p>
-            </div>
-            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground" title={question.description}>{question.description}</p>
-            {difficulty ? (
-              <Badge className={cn("mt-2", difficultyBadgeClass(question.difficulty))}>{difficulty.label}</Badge>
-            ) : null}
-            {question.tags.length > 0 ? (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {question.tags.map((tag) => (
-                  <span key={tag.id} className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium", TAG_COLOR_CLASSES[tag.color])}>
-                    {tag.name}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          {question.isFavorite ? <Star className="h-4 w-4 shrink-0 fill-amber-400 text-amber-400" /> : null}
-        </div>
-        <p className="mt-3 text-[11px] text-muted-foreground">Updated {formatRelativeDate(question.updatedAt)}</p>
-      </div>
-
-      {canEdit ? (
-        <Button
-          className="absolute right-2 top-2 h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
-          size="icon"
-          variant="ghost"
-          onPointerDown={stopDragPointer}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDelete();
-          }}
-          aria-label={`Delete ${question.title}`}
-          title="Delete question"
-        >
-          <Trash2 className="h-4 w-4 text-destructive" />
-        </Button>
-      ) : null}
-    </div>
-  );
-}
+import { CategoryPickerDialog } from "@/components/question-list/category-picker-dialog";
+import { SORT_OPTIONS, SortDropdown, sortWithinGroup, type SortOption } from "@/components/question-list/sort-dropdown";
+import { TagFilterDropdown } from "@/components/question-list/tag-filter-dropdown";
+import { SortableQuestionCard } from "@/components/question-list/sortable-question-card";
+import { isInputFocused, STATUS_CLASSES, STATUS_LABELS } from "@/components/question-list/question-list-utils";
 
 export function QuestionList({ compact = false, onCollapse, emptyMessage }: { compact?: boolean; onCollapse?: () => void; emptyMessage?: string }) {
   const {
@@ -459,17 +111,19 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
     const { title, description, difficulty, tagNames, content } = parseMarkdownFile(file.name, text);
     await addQuestion(selectedCategoryId, title);
 
+    // Capture IDs immediately after addQuestion resolves — do not re-read from store later,
+    // because the user may have clicked a different question during the network round-trip.
     const state = useWorkspaceStore.getState();
     const questionId = state.selectedQuestionId;
     const solutionId = state.selectedSolutionId;
 
-    if (questionId && !questionId.startsWith("temp-")) {
-      if (description) state.updateQuestionDescription(questionId, description);
-      if (difficulty) state.updateQuestionDifficulty(questionId, difficulty);
-      for (const name of tagNames) {
-        const tag = state.allTags.find((t) => t.name.toLowerCase() === name.toLowerCase());
-        if (tag) state.addTagToQuestion(questionId, tag.id);
-      }
+    if (!questionId || questionId.startsWith("temp-")) return;
+
+    if (description) state.updateQuestionDescription(questionId, description);
+    if (difficulty) state.updateQuestionDifficulty(questionId, difficulty);
+    for (const name of tagNames) {
+      const tag = state.allTags.find((t) => t.name.toLowerCase() === name.toLowerCase());
+      if (tag) state.addTagToQuestion(questionId, tag.id);
     }
     if (solutionId && !solutionId.startsWith("temp-")) {
       state.updateSolutionContent(solutionId, content);
@@ -522,6 +176,13 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
   const pinnedQuestions = sortWithinGroup(questions.filter((question) => question.isPinned), sortOption);
   const unpinnedQuestions = sortWithinGroup(questions.filter((question) => !question.isPinned), sortOption);
   const selectedCategory = getCategoryById(categories, selectedCategoryId);
+  const activeFilterLabels = [
+    filterStatus ? `Status: ${STATUS_LABELS[filterStatus]}` : null,
+    filterTagIds.length > 0
+      ? `Tags: ${allTags.filter((tag) => filterTagIds.includes(tag.id)).map((tag) => tag.name).join(", ")}`
+      : null,
+    sortOption !== "default" ? `Sort: ${SORT_OPTIONS.find((option) => option.value === sortOption)?.label ?? sortOption}` : null
+  ].filter(Boolean) as string[];
   const canEditSelectedCategory = selectedCategory?.canEdit ?? false;
   const isCreatingQuestion = Boolean(
     selectedCategoryId && creatingQuestionCategoryIds.includes(selectedCategoryId)
@@ -571,10 +232,40 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
     reorderQuestions(categoryId, mergedIds);
   }
 
-  function renderQuestionCard(question: Question, opts?: { global?: boolean }) {
+  const VIRTUAL_THRESHOLD = 40;
+  const shouldVirtualize = !compact && questions.length >= VIRTUAL_THRESHOLD;
+
+  type VItem = { k: "q"; question: Question; global: boolean } | { k: "h"; label: string };
+  const vItems = useMemo<VItem[]>(() => {
+    if (!shouldVirtualize) return [];
+    if (isGlobalMode) return questions.map((q) => ({ k: "q" as const, question: q, global: true }));
+    const out: VItem[] = [];
+    if (pinnedQuestions.length > 0) {
+      out.push({ k: "h", label: "Pinned" });
+      for (const q of pinnedQuestions) out.push({ k: "q", question: q, global: false });
+    }
+    if (unpinnedQuestions.length > 0) {
+      if (pinnedQuestions.length > 0) out.push({ k: "h", label: "Notes" });
+      for (const q of unpinnedQuestions) out.push({ k: "q", question: q, global: false });
+    }
+    return out;
+  }, [shouldVirtualize, isGlobalMode, questions, pinnedQuestions, unpinnedQuestions]);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: vItems.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (i) => (vItems[i]?.k === "h" ? 32 : 120),
+    overscan: 8,
+  });
+
+  function renderQuestionCard(question: Question, opts?: { global?: boolean; virtual?: boolean }) {
     const isTemp = question.id.startsWith("temp-");
     const category = getCategoryForQuestion(categories, question.id);
-    const canEdit = !isTemp && !opts?.global && (category?.canEdit ?? false);
+    const canOwn = !isTemp && (category?.canEdit ?? false);
+    // canDrag is disabled in virtual/global modes (DnD doesn't work there); delete is always available to owners
+    const canEdit = canOwn && !opts?.global && !opts?.virtual;
+    const canDelete = canOwn;
     return (
       <SortableQuestionCard
         key={question.id}
@@ -584,6 +275,7 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
         bulkMode={bulkMode}
         bulkSelected={selectedBulkIds.has(question.id)}
         canEdit={canEdit}
+        canDelete={canDelete}
         categoryLabel={opts?.global ? category?.name : undefined}
         onSelect={isTemp ? () => {} : () => selectQuestion(question.id)}
         onDelete={() => handleDeleteQuestion(question)}
@@ -648,7 +340,7 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
                           className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm hover:bg-muted"
                         >
                           <Download className="h-4 w-4" />
-                          Export current view
+                          Export filtered view
                         </button>
                       </div>
                     ) : null}
@@ -696,6 +388,16 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
               >
                 All categories
               </button>
+            ) : null}
+            {activeFilterLabels.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-full bg-muted/20 px-2 py-1 text-[11px] text-muted-foreground">
+                <span className="font-medium text-muted-foreground">Active filters:</span>
+                {activeFilterLabels.map((label) => (
+                  <span key={label} className="rounded-full bg-background px-2 py-1 text-[11px] text-muted-foreground shadow-sm">
+                    {label}
+                  </span>
+                ))}
+              </div>
             ) : null}
             {(["NOT_STARTED", "IN_PROGRESS", "SOLVED"] as QuestionStatus[]).map((s) => {
               const active = filterStatus === s;
@@ -769,78 +471,102 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
           />
         </>
       ) : null}
-      <div
-        className={cn(
-          "min-h-0 min-w-0 flex-1 overflow-y-auto p-3",
-          compact ? "flex gap-2 overflow-x-auto" : "space-y-2"
-        )}
-      >
-        {questions.length === 0 ? (
-          <div className="flex min-h-44 flex-col items-center justify-center rounded-lg border border-dashed p-5 text-center">
-            <p className="text-sm font-medium">No questions yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {emptyMessage ?? (canEditSelectedCategory ? "Create one to start collecting snippets and approaches." : "No public questions here yet.")}
-            </p>
-            {canEditSelectedCategory ? (
-              <Button
-                className="mt-4"
-                size="sm"
-                disabled={isCreatingQuestion}
-                onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
-              >
-                {isCreatingQuestion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                {isCreatingQuestion ? "Adding" : "Add question"}
-              </Button>
-            ) : null}
-          </div>
-        ) : isGlobalMode ? (
-          <div className="space-y-2">
-            {questions.map((question) => renderQuestionCard(question, { global: true }))}
-          </div>
-        ) : (
-          <div className={cn(compact ? "flex gap-2" : "space-y-3")}>
-            {pinnedQuestions.length > 0 ? (
-              <div className={cn(compact ? "flex gap-2" : "space-y-2")}>
-                {!compact ? (
-                  <p className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Pinned</p>
-                ) : null}
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={(event) => handleDragEnd(event, "pinned")}
+      {shouldVirtualize ? (
+        <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3">
+          <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
+            {virtualizer.getVirtualItems().map((vi) => {
+              const item = vItems[vi.index];
+              return (
+                <div
+                  key={vi.key}
+                  data-index={vi.index}
+                  ref={virtualizer.measureElement}
+                  style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${vi.start}px)` }}
                 >
-                  <SortableContext items={pinnedQuestions.map((question) => question.id)} strategy={verticalListSortingStrategy}>
-                    <div className={cn(compact ? "flex gap-2" : "space-y-2")}>
-                      {pinnedQuestions.map((question) => renderQuestionCard(question))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              </div>
-            ) : null}
-            {unpinnedQuestions.length > 0 ? (
-              <div className={cn(compact ? "flex gap-2" : "space-y-2")}>
-                {!compact && pinnedQuestions.length > 0 ? (
-                  <p className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
-                ) : null}
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={(event) => handleDragEnd(event, "unpinned")}
+                  {item.k === "h" ? (
+                    <p className="pb-1 pt-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{item.label}</p>
+                  ) : (
+                    <div className="pb-2">{renderQuestionCard(item.question, { global: item.global, virtual: true })}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "min-h-0 min-w-0 flex-1 overflow-y-auto p-3",
+            compact ? "flex gap-2 overflow-x-auto" : "space-y-2"
+          )}
+        >
+          {questions.length === 0 ? (
+            <div className="flex min-h-44 flex-col items-center justify-center rounded-lg border border-dashed p-5 text-center">
+              <p className="text-sm font-medium">No questions yet</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {emptyMessage ?? (canEditSelectedCategory ? "Create one to start collecting snippets and approaches." : "No public questions here yet.")}
+              </p>
+              {canEditSelectedCategory ? (
+                <Button
+                  className="mt-4"
+                  size="sm"
+                  disabled={isCreatingQuestion}
+                  onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
                 >
-                  <SortableContext
-                    items={unpinnedQuestions.map((question) => question.id)}
-                    strategy={verticalListSortingStrategy}
+                  {isCreatingQuestion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {isCreatingQuestion ? "Adding" : "Add question"}
+                </Button>
+              ) : null}
+            </div>
+          ) : isGlobalMode ? (
+            <div className="space-y-2">
+              {questions.map((question) => renderQuestionCard(question, { global: true }))}
+            </div>
+          ) : (
+            <div className={cn(compact ? "flex gap-2" : "space-y-3")}>
+              {pinnedQuestions.length > 0 ? (
+                <div className={cn(compact ? "flex gap-2" : "space-y-2")}>
+                  {!compact ? (
+                    <p className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Pinned</p>
+                  ) : null}
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(event) => handleDragEnd(event, "pinned")}
                   >
-                    <div className={cn(compact ? "flex gap-2" : "space-y-2")}>
-                      {unpinnedQuestions.map((question) => renderQuestionCard(question))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              </div>
-            ) : null}
-          </div>
-        )}
-      </div>
+                    <SortableContext items={pinnedQuestions.map((question) => question.id)} strategy={verticalListSortingStrategy}>
+                      <div className={cn(compact ? "flex gap-2" : "space-y-2")}>
+                        {pinnedQuestions.map((question) => renderQuestionCard(question))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              ) : null}
+              {unpinnedQuestions.length > 0 ? (
+                <div className={cn(compact ? "flex gap-2" : "space-y-2")}>
+                  {!compact && pinnedQuestions.length > 0 ? (
+                    <p className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
+                  ) : null}
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(event) => handleDragEnd(event, "unpinned")}
+                  >
+                    <SortableContext
+                      items={unpinnedQuestions.map((question) => question.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className={cn(compact ? "flex gap-2" : "space-y-2")}>
+                        {unpinnedQuestions.map((question) => renderQuestionCard(question))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

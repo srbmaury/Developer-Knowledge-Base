@@ -64,7 +64,7 @@ function CategoryBar({ category, maxCount }: { category: Category & { totalQ: nu
   );
 }
 
-export function StatsClient({ initialCategories, userEmail }: { initialCategories: Category[]; userEmail: string | null }) {
+export function StatsClient({ initialCategories, userEmail, isAdmin = false }: { initialCategories: Category[]; userEmail: string | null; isAdmin?: boolean }) {
   const { categories, setInitialData } = useWorkspaceStore();
 
   useEffect(() => { setInitialData(initialCategories); }, [initialCategories, setInitialData]);
@@ -112,7 +112,7 @@ export function StatsClient({ initialCategories, userEmail }: { initialCategorie
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <TopNav userEmail={userEmail} />
+      <TopNav userEmail={userEmail} isAdmin={isAdmin} />
       <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-8">
         <div className="mb-8">
           <h1 className="flex items-center gap-2 text-2xl font-bold">

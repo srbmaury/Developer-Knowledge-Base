@@ -9,6 +9,7 @@ import {
   deleteQuestionAction,
   deleteSolutionAction,
   deleteTagAction,
+  getSolutionContentAction,
   moveQuestionAction,
   reorderCategoriesAction,
   reorderQuestionsAction,
@@ -87,5 +88,7 @@ export const workspaceSync = {
   enrollInReview: (questionId: string) =>
     enrollInReviewAction({ questionId }),
   unenrollFromReview: (questionId: string) =>
-    unenrollFromReviewAction({ questionId })
+    unenrollFromReviewAction({ questionId }),
+
+  getSolutionContent: (solutionId: string) => getSolutionContentAction(solutionId)
 };

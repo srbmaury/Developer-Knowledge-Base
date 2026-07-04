@@ -1,13 +1,23 @@
 import { unstable_cache } from "next/cache";
-import { buildCategoryTree, mapTag } from "@/lib/mappers";
+import { buildCategoryTree, buildSlimCategoryTree, mapTag } from "@/lib/mappers";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, requireUserId } from "@/server/auth";
 import { questionListOrderBy } from "@/server/question-order";
 import type { Category, Tag } from "@/types/knowledge";
 
+const solutionSelect = {
+  id: true,
+  questionId: true,
+  title: true,
+  language: true,
+  order: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 const questionInclude = {
   questions: {
-    include: { solutions: true, tags: true },
+    include: { solutions: { select: solutionSelect }, tags: true },
     orderBy: questionListOrderBy
   }
 } as const;
@@ -29,14 +39,24 @@ export async function getWorkspaceData() {
       const tags: Tag[] = tagRows.map(mapTag);
 
       if (rows.length === 0) {
+        // Guard against duplicate creation on concurrent first-load: check once more before inserting
+        const alreadyExists = await prisma.category.findFirst({ where: { userId: uid }, select: { id: true } });
+        if (alreadyExists) {
+          const freshRows = await prisma.category.findMany({
+            where: { userId: uid },
+            include: questionInclude,
+            orderBy: { order: "asc" },
+          });
+          return { categories: buildSlimCategoryTree(freshRows, uid), tags };
+        }
         const defaultCat = await prisma.category.create({
           data: { userId: uid, name: "Getting Started", order: 0 },
-          include: questionInclude
+          include: questionInclude,
         });
-        return { categories: buildCategoryTree([defaultCat], uid), tags };
+        return { categories: buildSlimCategoryTree([defaultCat], uid), tags };
       }
 
-      return { categories: buildCategoryTree(rows, uid), tags };
+      return { categories: buildSlimCategoryTree(rows, uid), tags };
     },
     ["workspace", userId],
     { tags: [`workspace:${userId}`], revalidate: false }

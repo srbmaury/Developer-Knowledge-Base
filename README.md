@@ -5,22 +5,27 @@ A developer-focused personal knowledge base built with Next.js 15, TypeScript, T
 ## Features
 
 - Notion-style nested sidebar for categories and question lists
-- Question management with difficulty levels, favorites, and pinned items (pinned notes stay at the top)
+- Question management with difficulty levels, status tracking (Not Started / In Progress / Solved), favorites, and pinned items (pinned notes stay at the top)
+- Color-labeled tags for filtering and organizing questions
 - Drag-and-drop reordering within pinned and unpinned groups
-- Multiple solution tabs per question
-- Raw markdown editor with live preview (GFM, syntax highlighting)
-- Global search and command palette (`Ctrl+K`)
-- PostgreSQL persistence via Prisma and Neon
+- Multiple solution tabs per question with word count and read-time display
+- Raw markdown editor with live preview (GFM, syntax highlighting, Mermaid diagrams, image support)
+- Global search and command palette (`Ctrl+K`), keyboard shortcuts (`?` to open help)
+- Spaced repetition review queue with SM-2 scheduling
+- Workspace-level zip import/export and per-category markdown import/export
 - **Per-user workspaces** with Supabase email/password sign-in
-- AI answer generation (structured markdown + suggested difficulty via OpenAI)
+- AI answer generation and AI solution review (via OpenAI)
+- PostgreSQL persistence via Prisma and Neon
 
 ## App pages
 
-This app exposes 4 top-level views (besides `/login`):
+This app exposes 6 top-level views (besides `/login`):
 
 - `/` (workspace home)
 - `/most-viewed` (most viewed notes)
 - `/starred` (user favorites)
+- `/review` (spaced repetition review queue)
+- `/stats` (activity and progress stats)
 - `/public` (public/shared notes)
 
 
@@ -91,8 +96,18 @@ This runs `prisma migrate reset` (drops all tables, re-runs migrations, runs the
 | `DIRECT_URL` | Neon **direct** URL (non-pooler host, for `prisma migrate`) |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (auth, required) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (auth, required) |
-| `OPENAI_API_KEY` | AI answer generation (optional) |
-| `OPENAI_MODEL` | OpenAI model id (optional) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key — required for account deletion |
+| `NEXT_PUBLIC_SITE_URL` | Public deployment URL — used in password-reset emails |
+| `OPENAI_API_KEY` | OpenAI key — required for Premium AI features |
+| `OPENAI_MODEL` | OpenAI model ID (default: `gpt-4o-mini`) |
+| `ADMIN_EMAIL` | Email address that can access `/admin` (server-side check) |
+| `NEXT_PUBLIC_ADMIN_EMAIL` | Same value — shows the Admin panel link in the user menu |
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis URL — distributed rate limiting (optional, falls back to in-memory) |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis token |
+| `SENTRY_DSN` | Sentry DSN for server-side error monitoring (optional) |
+| `NEXT_PUBLIC_SENTRY_DSN` | Sentry DSN for client-side error monitoring (optional) |
+| `SENTRY_ORG` | Sentry org slug (for source map upload in CI) |
+| `SENTRY_PROJECT` | Sentry project slug |
 
 ## Project Structure
 

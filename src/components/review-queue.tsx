@@ -50,7 +50,7 @@ function sortReviewQueue(questions: Question[]): Question[] {
   });
 }
 
-export function ReviewQueue({ initialCategories, userEmail }: { initialCategories: Category[]; userEmail?: string | null }) {
+export function ReviewQueue({ initialCategories, userEmail, isAdmin = false }: { initialCategories: Category[]; userEmail?: string | null; isAdmin?: boolean }) {
   const { categories, setInitialData, submitSpacedReview } = useWorkspaceStore();
   const router = useRouter();
 
@@ -103,7 +103,7 @@ export function ReviewQueue({ initialCategories, userEmail }: { initialCategorie
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <TopNav userEmail={userEmail ?? null} />
+      <TopNav userEmail={userEmail ?? null} isAdmin={isAdmin} />
       {/* Sub-header: progress */}
       {!isEmpty && !done ? (
         <div className="flex h-10 shrink-0 items-center gap-3 border-b px-4">

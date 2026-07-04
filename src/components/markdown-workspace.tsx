@@ -155,7 +155,7 @@ export function MarkdownWorkspace({
             onMouseDown={handleDividerMouseDown}
           />
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <MarkdownPreview content={content} fillPane embedded className="h-full" />
+            <MarkdownPreview content={content} fillPane embedded className="h-full" readOnly={readOnly} />
           </div>
         </div>
       </div>
@@ -176,7 +176,7 @@ export function MarkdownWorkspace({
           className="min-h-0 flex-1"
         />
       ) : (
-        <MarkdownPreview content={content} fillPane embedded className="min-h-0 flex-1" />
+        <MarkdownPreview content={content} fillPane embedded className="min-h-0 flex-1" readOnly={readOnly} />
       )}
     </div>
   );

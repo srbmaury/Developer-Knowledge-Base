@@ -8,6 +8,7 @@ import {
   type GeneratedAnswer
 } from "@/lib/ai-answer";
 import { getSessionUser } from "@/server/auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { Difficulty } from "@/types/knowledge";
 
 type GenerateAnswerRequest = {
@@ -17,25 +18,6 @@ type GenerateAnswerRequest = {
   language: string;
   defaultLanguage: string;
 };
-
-// Sliding-window in-memory rate limiter. Resets when the server process restarts.
-// Swap the Map for a Redis client to share limits across instances.
-const rateLimitMap = new Map<string, number[]>();
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 10;
-
-function checkRateLimit(userId: string): { allowed: boolean; retryAfterSecs: number } {
-  const now = Date.now();
-  const hits = (rateLimitMap.get(userId) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
-  if (hits.length >= RATE_MAX) {
-    rateLimitMap.set(userId, hits);
-    const retryAfterSecs = Math.ceil((hits[0] + RATE_WINDOW_MS - now) / 1000);
-    return { allowed: false, retryAfterSecs };
-  }
-  hits.push(now);
-  rateLimitMap.set(userId, hits);
-  return { allowed: true, retryAfterSecs: 0 };
-}
 
 const MAX_TITLE_CHARS = 200;
 const MAX_DESC_CHARS = 2000;
@@ -112,7 +94,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "You must be signed in." }, { status: 401 });
   }
 
-  const rateCheck = checkRateLimit(user.id);
+  // Rate limit (per user, distributed via Upstash when configured)
+  const rateCheck = await checkRateLimit(user.id);
   if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: `Rate limit exceeded. Try again in ${rateCheck.retryAfterSecs}s.` },
@@ -121,12 +104,8 @@ export async function POST(request: NextRequest) {
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
-
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "OPENAI_API_KEY is missing. Add it to .env and restart the dev server." },
-      { status: 501 }
-    );
+    return NextResponse.json({ error: "OPENAI_API_KEY is not configured." }, { status: 501 });
   }
 
   let body: GenerateAnswerRequest;
@@ -152,10 +131,7 @@ export async function POST(request: NextRequest) {
       { role: "system", content: ANSWER_SYSTEM_PROMPT },
       { role: "user", content: userPrompt }
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: ANSWER_JSON_SCHEMA
-    }
+    response_format: { type: "json_schema", json_schema: ANSWER_JSON_SCHEMA }
   };
 
   let textResult = await callOpenAi(apiKey, model, chatBody, "chat");
@@ -176,7 +152,6 @@ export async function POST(request: NextRequest) {
         }
       }
     };
-
     textResult = await callOpenAi(apiKey, model, responsesBody, "responses");
   }
 
@@ -198,8 +173,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Model returned empty markdown content." }, { status: 502 });
   }
 
-  return NextResponse.json({
-    content: answer.content,
-    difficulty: answer.difficulty
-  });
+  return NextResponse.json({ content: answer.content, difficulty: answer.difficulty });
 }

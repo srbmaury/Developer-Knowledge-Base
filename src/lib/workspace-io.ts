@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import { getCategoryById, useWorkspaceStore } from "@/store/workspace-store";
+import { bulkImportAction, getExportContentAction } from "@/app/actions";
 import type { Category, Difficulty, QuestionStatus } from "@/types/knowledge";
 
 export function slugify(name: string) {
@@ -77,41 +77,73 @@ function filterCategories(categories: Category[], options: ExportFilterOptions):
 }
 
 export async function exportWorkspaceToZip(categories: Category[], options: ExportFilterOptions = {}) {
-  const JSZip = (await import("jszip")).default;
-  const zip = new JSZip();
-  const categoriesToExport = filterCategories(categories, options);
-
-  function addCategory(cat: Category, parentPath: string) {
-    const folderPath = parentPath ? `${parentPath}/${slugify(cat.name)}` : slugify(cat.name);
-    for (const q of cat.questions) {
-      const parts: string[] = [];
-      parts.push(`# ${q.title || "Untitled"}`);
-      if (q.description) parts.push(`\n${q.description}`);
-      if (q.difficulty || q.tags.length > 0) {
-        parts.push("\n---");
-        if (q.difficulty) parts.push(`**Difficulty:** ${q.difficulty}`);
-        if (q.tags.length > 0) parts.push(`**Tags:** ${q.tags.map((t) => t.name).join(", ")}`);
-        parts.push("---");
-      }
-      const content = q.solutions?.[0]?.content ?? "";
-      if (content) parts.push(`\n${content}`);
-      zip.file(`${folderPath}/${slugify(q.title || "untitled")}.md`, parts.join("\n"));
+  const toastId = toast.loading("Preparing export…");
+  try {
+    const contentResult = await getExportContentAction();
+    if (!contentResult.ok) {
+      toast.error("Export failed — could not load solution content.", { id: toastId });
+      return;
     }
-    for (const child of cat.children) addCategory(child, folderPath);
+    const contentMap = contentResult.content;
+
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+    const categoriesToExport = filterCategories(categories, options);
+
+    function addCategory(cat: Category, parentPath: string) {
+      const folderPath = parentPath ? `${parentPath}/${slugify(cat.name)}` : slugify(cat.name);
+      for (const q of cat.questions) {
+        // Format: # Title \n [description] [**Difficulty:**] [**Tags:**] --- \n [content]
+        // Parser splits on the FIRST "---": everything before = meta, everything after = content.
+        const lines: string[] = [];
+        lines.push(`# ${q.title || "Untitled"}`);
+
+        const content = contentMap[q.id] ?? "";
+        const hasMeta = !!(q.description || q.difficulty || q.tags.length > 0);
+
+        if (hasMeta) {
+          if (q.description) { lines.push(""); lines.push(q.description); }
+          if (q.difficulty) lines.push(`**Difficulty:** ${q.difficulty}`);
+          if (q.tags.length > 0) lines.push(`**Tags:** ${q.tags.map((t) => t.name).join(", ")}`);
+          lines.push("---");
+          if (content) { lines.push(""); lines.push(content); }
+        } else if (content) {
+          lines.push(""); lines.push(content);
+        }
+
+        zip.file(`${folderPath}/${slugify(q.title || "untitled")}.md`, lines.join("\n"));
+      }
+      for (const child of cat.children) addCategory(child, folderPath);
+    }
+
+    for (const cat of categoriesToExport) addCategory(cat, "");
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "knowledge-base.zip";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.dismiss(toastId);
+  } catch {
+    toast.error("Export failed.", { id: toastId });
   }
-
-  for (const cat of categoriesToExport) addCategory(cat, "");
-
-  const blob = await zip.generateAsync({ type: "blob" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "knowledge-base.zip";
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
-export async function importWorkspaceFromZip(file: File) {
+type ImportNode = {
+  name: string;
+  questions: Array<{
+    title: string;
+    description: string;
+    difficulty: Difficulty | null;
+    content: string;
+    tagNames: string[];
+  }>;
+  children: ImportNode[];
+};
+
+export async function importWorkspaceFromZip(file: File, refresh: () => void) {
   const toastId = toast.loading("Reading zip…");
   try {
     const JSZip = (await import("jszip")).default;
@@ -131,71 +163,59 @@ export async function importWorkspaceFromZip(file: File) {
       return;
     }
 
-    // Build unique folder paths sorted shallowest-first so parents are created before children
-    const folderPathSet = new Set<string>();
+    // Build tree: folder path → ImportNode, maintaining insertion order for correct child ordering
+    const nodeByPath = new Map<string, ImportNode>();
+    const rootNodes: ImportNode[] = [];
+
     for (const { pathParts } of mdEntries) {
       const folderParts = pathParts.slice(0, -1);
-      for (let i = 1; i <= folderParts.length; i++) {
-        folderPathSet.add(folderParts.slice(0, i).join("/"));
-      }
-    }
-    const sortedFolders = [...folderPathSet].sort(
-      (a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)
-    );
-
-    const pathToId = new Map<string, string>();
-    for (const folderPath of sortedFolders) {
-      const parts = folderPath.split("/");
-      const name = parts[parts.length - 1];
-      const parentPath = parts.slice(0, -1).join("/");
-      const parentId = parentPath ? (pathToId.get(parentPath) ?? null) : null;
-
-      const state = useWorkspaceStore.getState();
-      const siblings = parentId
-        ? getCategoryById(state.categories, parentId)?.children ?? []
-        : state.categories;
-      const existing = siblings.find((c) => c.name === name);
-
-      if (existing) {
-        pathToId.set(folderPath, existing.id);
-      } else {
-        await state.addCategory(name, parentId);
-        const newId = useWorkspaceStore.getState().selectedCategoryId;
-        if (newId) pathToId.set(folderPath, newId);
-      }
-    }
-
-    let created = 0;
-    for (const { pathParts, rawContent } of mdEntries) {
-      const folderParts = pathParts.slice(0, -1);
-      const filename = pathParts[pathParts.length - 1];
-      const folderPath = folderParts.join("/");
-      const categoryId = folderPath ? pathToId.get(folderPath) : null;
-      if (!categoryId) continue;
-
-      const { title, description, difficulty, tagNames, content } = parseMarkdownFile(filename, rawContent);
-      await useWorkspaceStore.getState().addQuestion(categoryId, title);
-
-      const s = useWorkspaceStore.getState();
-      const questionId = s.selectedQuestionId;
-      const solutionId = s.selectedSolutionId;
-
-      if (questionId && !questionId.startsWith("temp-")) {
-        if (description) s.updateQuestionDescription(questionId, description);
-        if (difficulty) s.updateQuestionDifficulty(questionId, difficulty);
-        for (const tagName of tagNames) {
-          const tag = s.allTags.find((t) => t.name.toLowerCase() === tagName.toLowerCase());
-          if (tag) s.addTagToQuestion(questionId, tag.id);
+      for (let depth = 1; depth <= folderParts.length; depth++) {
+        const path = folderParts.slice(0, depth).join("/");
+        if (!nodeByPath.has(path)) {
+          const node: ImportNode = { name: folderParts[depth - 1], questions: [], children: [] };
+          nodeByPath.set(path, node);
+          if (depth === 1) {
+            rootNodes.push(node);
+          } else {
+            nodeByPath.get(folderParts.slice(0, depth - 1).join("/"))!.children.push(node);
+          }
         }
       }
-      if (solutionId && !solutionId.startsWith("temp-")) {
-        s.updateSolutionContent(solutionId, content);
-      }
-      created++;
     }
 
-    toast.success(`Imported ${created} note${created === 1 ? "" : "s"}`, { id: toastId });
-  } catch {
-    toast.error("Failed to import zip", { id: toastId });
+    for (const { pathParts, rawContent } of mdEntries) {
+      const folderParts = pathParts.slice(0, -1);
+      if (folderParts.length === 0) continue; // skip root-level .md files
+      const node = nodeByPath.get(folderParts.join("/"));
+      if (!node) continue;
+      node.questions.push(parseMarkdownFile(pathParts[pathParts.length - 1], rawContent));
+    }
+
+    if (rootNodes.length === 0) {
+      toast.error("No categories found — organize notes into folders inside the zip.", { id: toastId });
+      return;
+    }
+
+    toast.dismiss(toastId);
+    const importId = toast.loading("Importing…", {
+      description: "Large imports can take a minute. Please don't close the tab.",
+    });
+
+    const result = await bulkImportAction(rootNodes);
+    toast.dismiss(importId);
+
+    if (!result.ok) {
+      toast.error(result.message);
+      return;
+    }
+
+    toast.success(
+      `Imported ${result.questions} note${result.questions === 1 ? "" : "s"} in ${result.categories} categor${result.categories === 1 ? "y" : "ies"}`,
+    );
+    refresh();
+  } catch (err) {
+    console.error(err);
+    toast.dismiss(toastId);
+    toast.error("Failed to import zip");
   }
 }

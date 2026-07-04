@@ -32,6 +32,7 @@ type MarkdownPreviewProps = {
   className?: string;
   fillPane?: boolean;
   embedded?: boolean;
+  readOnly?: boolean;
 };
 
 function MermaidDiagram({ chart }: { chart: string }) {
@@ -45,7 +46,7 @@ function MermaidDiagram({ chart }: { chart: string }) {
     setError(null);
 
     import("mermaid").then(({ default: mermaid }) => {
-      mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
+      mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
       return mermaid.render(safeId, chart);
     }).then(({ svg }) => {
       if (containerRef.current) containerRef.current.innerHTML = svg;
@@ -206,7 +207,7 @@ function makeMarkdownComponents() {
 
 const defaultMarkdownComponents = makeMarkdownComponents();
 
-export function MarkdownPreview({ content, className, fillPane, embedded }: MarkdownPreviewProps) {
+export function MarkdownPreview({ content, className, fillPane, embedded, readOnly = false }: MarkdownPreviewProps) {
   const processedContent = useMemo(() => preprocessWikiLinks(content), [content]);
   const legacyHtml = isLikelyHtml(content);
 
@@ -223,7 +224,7 @@ export function MarkdownPreview({ content, className, fillPane, embedded }: Mark
 
   const looksEscapedHtml = content.includes("&lt;") || content.includes("&gt;");
 
-  if (legacyHtml && !looksEscapedHtml) {
+  if (legacyHtml && !looksEscapedHtml && !readOnly) {
     return (
       <div className={shellClass}>
         <HighlightJsTheme />

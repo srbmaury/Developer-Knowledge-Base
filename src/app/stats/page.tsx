@@ -9,5 +9,6 @@ export default async function StatsPage() {
 
   const data = await getWorkspaceData();
 
-  return <StatsClient initialCategories={data.categories} userEmail={user.email} />;
+  const isAdmin = !!process.env.ADMIN_EMAIL && user.email === process.env.ADMIN_EMAIL;
+  return <StatsClient initialCategories={data.categories} userEmail={user.email} isAdmin={isAdmin} />;
 }

@@ -20,6 +20,8 @@ export type Solution = {
   content: string;
   notes: string;
   aiReview: ReviewResult | null;
+  /** False when only metadata was loaded; content/notes/aiReview pending a fetch */
+  contentLoaded?: boolean;
   order: number;
   createdAt: string;
   updatedAt: string;

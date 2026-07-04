@@ -120,6 +120,36 @@ describe("applyMarkdownInsert – link", () => {
   });
 });
 
+describe("applyMarkdownInsert – image", () => {
+  it("wraps selection as alt text and pre-selects the url placeholder", () => {
+    const base = "see diagram here";
+    const { next, selectionStart, selectionEnd } = applyMarkdownInsert(base, 4, 11, "image");
+    expect(next).toBe("see ![diagram](url) here");
+    expect(next.slice(selectionStart, selectionEnd)).toBe("url");
+  });
+
+  it("uses placeholder alt text when nothing is selected", () => {
+    const { next } = applyMarkdownInsert("", 0, 0, "image");
+    expect(next).toBe("![alt text](url)");
+  });
+});
+
+describe("applyMarkdownInsert – mermaid", () => {
+  it("inserts a mermaid fenced block with a graph placeholder", () => {
+    const { next } = applyMarkdownInsert("", 0, 0, "mermaid");
+    expect(next).toContain("```mermaid");
+    expect(next).toContain("graph TD");
+    expect(next).toContain("A --> B");
+    expect(next).toContain("```");
+  });
+
+  it("selects the placeholder diagram content", () => {
+    const { next, selectionStart, selectionEnd } = applyMarkdownInsert("", 0, 0, "mermaid");
+    const selected = next.slice(selectionStart, selectionEnd);
+    expect(selected).toBe("graph TD\n  A --> B");
+  });
+});
+
 describe("applyMarkdownInsert – horizontal rule", () => {
   it("inserts --- with surrounding blank lines after cursor", () => {
     const { next } = applyMarkdownInsert("above", 5, 5, "hr");
@@ -127,9 +157,19 @@ describe("applyMarkdownInsert – horizontal rule", () => {
   });
 });
 
+describe("applyMarkdownInsert – unknown action", () => {
+  it("returns the original text unchanged for an unrecognised action", () => {
+    // @ts-expect-error — intentionally passing an invalid action
+    const { next, selectionStart, selectionEnd } = applyMarkdownInsert(text, 2, 7, "unknown-action");
+    expect(next).toBe(text);
+    expect(selectionStart).toBe(2);
+    expect(selectionEnd).toBe(7);
+  });
+});
+
 describe("applyMarkdownInsert – result cursor / selection positions", () => {
   it("selectionStart <= selectionEnd for all actions", () => {
-    const actions = ["h1", "h2", "h3", "bullet", "ordered", "bold", "italic", "code", "codeBlock", "quote", "link", "hr"] as const;
+    const actions = ["h1", "h2", "h3", "bullet", "ordered", "bold", "italic", "code", "codeBlock", "quote", "link", "image", "mermaid", "hr"] as const;
     for (const action of actions) {
       const { selectionStart, selectionEnd } = applyMarkdownInsert(text, 0, 5, action);
       expect(selectionStart).toBeLessThanOrEqual(selectionEnd);

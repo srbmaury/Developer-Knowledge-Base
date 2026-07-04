@@ -8,5 +8,6 @@ export default async function ReviewPage() {
   if (!user) redirect("/login");
 
   const data = await getWorkspaceData();
-  return <ReviewQueue initialCategories={data.categories} userEmail={user.email} />;
+  const isAdmin = !!process.env.ADMIN_EMAIL && user.email === process.env.ADMIN_EMAIL;
+  return <ReviewQueue initialCategories={data.categories} userEmail={user.email} isAdmin={isAdmin} />;
 }
