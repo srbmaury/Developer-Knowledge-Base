@@ -25,6 +25,18 @@ function isInputFocused() {
   return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
 }
 
+/** Single-key shortcut (e.g. "?"). Ignored when an input is focused. */
+export function useSingleHotkey(key: string, callback: () => void) {
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (isInputFocused() || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key === key) { event.preventDefault(); callback(); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [key, callback]);
+}
+
 /** g → h/m/s/p style sequential shortcuts. Ignored when an input is focused. */
 export function useSequenceHotkey(first: string, second: string, callback: () => void) {
   const pendingRef = useRef(false);

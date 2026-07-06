@@ -8,7 +8,7 @@ import {
   Heading1,
   Heading2,
   Heading3,
-  Image,
+  Image as ImageIcon,
   Italic,
   Link,
   List,
@@ -38,7 +38,7 @@ const TOOLBAR_ITEMS: Array<{ action: MarkdownInsertAction; label: string; icon: 
   { action: "codeBlock", label: "Code block", icon: <Code2 className="h-4 w-4" /> },
   { action: "quote", label: "Quote", icon: <Quote className="h-4 w-4" /> },
   { action: "link", label: "Link", icon: <Link className="h-4 w-4" /> },
-  { action: "image", label: "Image (URL)", icon: <Image className="h-4 w-4" /> },
+  { action: "image", label: "Image (URL)", icon: <ImageIcon className="h-4 w-4" /> },
   { action: "mermaid", label: "Mermaid diagram", icon: <GitBranch className="h-4 w-4" /> },
   { action: "hr", label: "Divider", icon: <Minus className="h-4 w-4" /> }
 ];

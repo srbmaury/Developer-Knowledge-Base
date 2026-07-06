@@ -28,7 +28,7 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/auth");
-  const isPublicRoute = pathname === "/public";
+  const isPublicRoute = pathname === "/public" || pathname === "/privacy" || pathname === "/terms";
   const isPublicApi = pathname === "/api/health";
 
   if (!user && !isAuthRoute && !isPublicRoute && !isPublicApi) {

@@ -107,7 +107,7 @@ export function applyMarkdownInsert(
       const placeholder = "graph TD\n  A --> B";
       const block = `\`\`\`mermaid\n${placeholder}\n\`\`\``;
       const next = text.slice(0, start) + block + text.slice(end);
-      const selectionStart = start + 10; // after "```mermaid\n"
+      const selectionStart = start + 11; // after "```mermaid\n" (11 chars)
       return { next, selectionStart, selectionEnd: selectionStart + placeholder.length };
     }
     case "hr": {

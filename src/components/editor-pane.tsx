@@ -1,29 +1,37 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Bot, CheckCircle2, Copy, FileCode2, Lightbulb, Loader2, MessageSquare, Pin, Plus, Save, Star, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Copy, FileCode2, Loader2, MessageSquare, Plus, Save, Trash2, X } from "lucide-react";
 import type { ReviewResult } from "@/lib/ai-answer";
 import { toast } from "sonner";
-import { DIFFICULTIES, LANGUAGES } from "@/lib/constants";
+import { DIFFICULTIES, LANGUAGES, difficultyBadgeClass } from "@/lib/constants";
+import { TAG_COLOR_CLASSES } from "@/lib/tag-colors";
 import { workspaceSync } from "@/lib/workspace-sync";
 import { cn } from "@/lib/utils";
 import { getAllQuestions, getCategoryForQuestion, useWorkspaceStore } from "@/store/workspace-store";
-import type { Difficulty, SolutionLanguage } from "@/types/knowledge";
+import type { Difficulty, SolutionLanguage, Solution } from "@/types/knowledge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarkdownWorkspace, type MarkdownViewMode } from "@/components/markdown-workspace";
-import type { Question, Solution } from "@/types/knowledge";
-
-function isNewQuestion(question: Question, solution: Solution) {
-  return question.title.trim() === "" && solution.content.trim() === "";
-}
+import { computeBacklinks, exportQuestionToMarkdown, isNewQuestion } from "@/components/editor/editor-pane-utils";
+import { QuestionActionsMenu } from "@/components/editor/question-actions-menu";
+import { MoveToCategoryDialog } from "@/components/editor/move-to-category-dialog";
+import { ReviewPanel } from "@/components/editor/review-panel";
+import { StatusCycleButton } from "@/components/editor/status-cycle-button";
+import { TagManagerButton } from "@/components/editor/tag-manager-button";
+import { SaveStatusIndicator } from "@/components/editor/save-status-indicator";
 
 export function EditorPane() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [reviewingSolutionId, setReviewingSolutionId] = useState<string | null>(null);
+  const [justReviewedSolutionId, setJustReviewedSolutionId] = useState<string | null>(null);
+  const [reviewedSolutionIds, setReviewedSolutionIds] = useState(new Set<string>());
+  const [solutionToDelete, setSolutionToDelete] = useState<Solution | null>(null);
   const [contentView, setContentView] = useState<MarkdownViewMode>("preview");
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const previousQuestionId = useRef<string | null>(null);
   const {
     categories,
@@ -42,11 +50,22 @@ export function EditorPane() {
     toggleFavorite,
     toggleImportant,
     creatingSolutionQuestionIds,
-    creatingQuestionCategoryIds,
     saveStatus,
-    updateSolutionAiReview
+    updateSolutionAiReview,
+    updateQuestionStatus,
+    enrollInReview,
+    unenrollFromReview,
+    moveQuestion,
+    allTags,
+    addTagToQuestion,
+    removeTagFromQuestion,
+    createTag
   } = useWorkspaceStore();
   const question = getAllQuestions(categories).find((item) => item.id === selectedQuestionId);
+  const backlinks = useMemo(
+    () => (question ? computeBacklinks(categories, question.id) : []),
+    [categories, question]
+  );
   const solution = question?.solutions.find((item) => item.id === selectedSolutionId) ?? question?.solutions[0];
   const selectedCategory = getCategoryForQuestion(categories, question?.id);
   const canEdit = selectedCategory?.canEdit ?? false;
@@ -54,6 +73,7 @@ export function EditorPane() {
   const isCreatingSolution = Boolean(question && creatingSolutionQuestionIds.includes(question.id));
   const isCreatingQuestion = Boolean(selectedQuestionId && selectedQuestionId.startsWith("temp-question"));
 
+  const articleRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
@@ -70,6 +90,10 @@ export function EditorPane() {
 
     if (previousQuestionId.current !== selectedQuestionId) {
       previousQuestionId.current = selectedQuestionId;
+      setJustReviewedSolutionId(null);
+      // Scroll the editor pane back to the top when the selected question changes
+      const scrollEl = articleRef.current?.closest('[data-scroll="editor"]') as HTMLElement | null;
+      if (scrollEl) scrollEl.scrollTop = 0;
       setContentView(isNewQuestion(question, solution) ? "editor" : "preview");
 
       if (isNewQuestion(question, solution)) {
@@ -163,6 +187,8 @@ export function EditorPane() {
       }
 
       updateSolutionAiReview(targetId, data);
+      setJustReviewedSolutionId(targetId);
+      setReviewedSolutionIds((prev) => new Set([...prev, targetId]));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to review the answer.");
     } finally {
@@ -194,7 +220,7 @@ export function EditorPane() {
   }
 
   return (
-    <article className="min-w-0">
+    <article ref={articleRef} className="min-w-0">
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8">
         <div className="flex flex-col gap-4 border-b pb-5">
         <div className="flex flex-col gap-3">
@@ -216,53 +242,38 @@ export function EditorPane() {
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               <SaveStatusIndicator status={saveStatus} />
 
-              <select
-                value={question.difficulty}
-                onChange={(event) =>
-                  updateQuestionDifficulty(question.id, event.target.value as Difficulty)
-                }
-                disabled={!canEdit}
-                className="h-9 rounded-md border bg-background px-3 text-sm shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+              <div
+                className="flex overflow-hidden rounded-md border shadow-sm"
+                role="group"
                 aria-label="Question difficulty"
               >
                 {DIFFICULTIES.map((level) => (
-                  <option key={level.value} value={level.value}>
+                  <button
+                    key={level.value}
+                    type="button"
+                    disabled={!canEdit}
+                    onClick={() => updateQuestionDifficulty(question.id, level.value as Difficulty)}
+                    className={cn(
+                      "border-r px-3 py-1.5 text-xs font-medium last:border-r-0 transition-colors disabled:cursor-default",
+                      question.difficulty === level.value
+                        ? difficultyBadgeClass(level.value)
+                        : "bg-background text-muted-foreground enabled:hover:bg-muted"
+                    )}
+                  >
                     {level.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
+              </div>
 
-              {canEdit ? (
-                <>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => toggleImportant(question.id)}
-                    aria-label="Mark important"
-                  >
-                    <Pin
-                      className={cn(
-                        "h-4 w-4",
-                        question.isPinned && "fill-accent text-accent"
-                      )}
-                    />
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => toggleFavorite(question.id)}
-                    aria-label="Toggle favorite"
-                  >
-                    <Star
-                      className={cn(
-                        "h-4 w-4",
-                        question.isFavorite && "fill-amber-400 text-amber-400"
-                      )}
-                    />
-                  </Button>
-                </>
-              ) : null}
+              <QuestionActionsMenu
+                question={question}
+                canEdit={canEdit}
+                onExport={() => exportQuestionToMarkdown(question)}
+                onMove={() => setMoveDialogOpen(true)}
+                onPin={() => toggleImportant(question.id)}
+                onStar={() => toggleFavorite(question.id)}
+                onReview={() => question.srDue ? unenrollFromReview(question.id) : enrollInReview(question.id)}
+              />
             </div>
           </div>
 
@@ -288,6 +299,41 @@ export function EditorPane() {
               placeholder="Add a short description"
             />
           </div>
+
+          {/* Status + Tags Row */}
+          {(canEdit || question.tags.length > 0) ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {canEdit ? (
+                <StatusCycleButton
+                  status={question.status}
+                  onChange={(s) => updateQuestionStatus(question.id, s)}
+                />
+              ) : null}
+              {question.tags.map((tag) => (
+                <span key={tag.id} className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium", TAG_COLOR_CLASSES[tag.color])}>
+                  {tag.name}
+                  {canEdit ? (
+                    <button
+                      onClick={() => removeTagFromQuestion(question.id, tag.id)}
+                      className="ml-0.5 rounded-full opacity-60 hover:opacity-100 transition-opacity"
+                      aria-label={`Remove tag ${tag.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  ) : null}
+                </span>
+              ))}
+              {canEdit ? (
+                <TagManagerButton
+                  questionId={question.id}
+                  questionTags={question.tags}
+                  allTags={allTags}
+                  onCreate={createTag}
+                  onAdd={addTagToQuestion}
+                />
+              ) : null}
+            </div>
+          ) : null}
         </div>
         </div>
 
@@ -339,7 +385,11 @@ export function EditorPane() {
                 {reviewingSolutionId === solution.id
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : <MessageSquare className="h-4 w-4" />}
-                {reviewingSolutionId === solution.id ? "Reviewing…" : "Review"}
+                {reviewingSolutionId === solution.id
+                  ? "Reviewing…"
+                  : reviewedSolutionIds.has(solution.id)
+                  ? "Re-review"
+                  : "Review"}
               </Button>
                 </>
               ) : null}
@@ -403,9 +453,7 @@ export function EditorPane() {
                           }
                           onClick={() => {
                             if (question.solutions.length <= 1) return;
-                            if (window.confirm(`Delete "${item.title}"?`)) {
-                              void deleteSolution(item.id);
-                            }
+                            setSolutionToDelete(item);
                           }}
                           aria-label="Delete approach"
                         >
@@ -445,7 +493,11 @@ export function EditorPane() {
                 ) : item.aiReview ? (
                   <ReviewPanel
                     review={item.aiReview}
-                    onDismiss={() => updateSolutionAiReview(item.id, null)}
+                    autoScroll={justReviewedSolutionId === item.id}
+                    onDismiss={() => {
+                      if (justReviewedSolutionId === item.id) setJustReviewedSolutionId(null);
+                      updateSolutionAiReview(item.id, null);
+                    }}
                   />
                 ) : null}
               </section>
@@ -453,77 +505,58 @@ export function EditorPane() {
           ))}
         </Tabs>
       </div>
-    </article>
-  );
-}
 
-const RATING_STYLES: Record<ReviewResult["rating"], string> = {
-  good: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
-  "needs-work": "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20",
-  poor: "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20"
-};
-
-const RATING_LABEL: Record<ReviewResult["rating"], string> = {
-  good: "Good",
-  "needs-work": "Needs work",
-  poor: "Poor"
-};
-
-function ReviewPanel({ review, onDismiss }: { review: ReviewResult; onDismiss: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, []);
-
-  return (
-    <div ref={ref} className="border-t px-4 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">AI Review</p>
-          <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium", RATING_STYLES[review.rating])}>
-            {RATING_LABEL[review.rating]}
-          </span>
+      {backlinks.length > 0 ? (
+        <div className="mx-auto w-full max-w-6xl px-4 pb-8 sm:px-8">
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="text-base leading-none">↩</span>
+              Referenced by {backlinks.length} {backlinks.length === 1 ? "note" : "notes"}
+            </p>
+            <div className="space-y-2">
+              {backlinks.map((bq) => (
+                <button
+                  key={bq.id}
+                  type="button"
+                  onClick={() => useWorkspaceStore.getState().selectQuestion(bq.id)}
+                  className="block w-full rounded-md px-3 py-2.5 text-left transition-colors hover:bg-background"
+                >
+                  <p className="text-sm font-medium text-foreground">{bq.title || "Untitled"}</p>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={onDismiss} aria-label="Dismiss review">
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-      <p className="mt-1.5 text-sm text-muted-foreground">{review.summary}</p>
-      {review.feedback.length > 0 ? (
-        <ul className="mt-3 space-y-2">
-          {review.feedback.map((item, i) => (
-            <li key={i} className="flex gap-2.5 text-sm">
-              {item.type === "strength" ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-              ) : item.type === "issue" ? (
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              ) : (
-                <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-              )}
-              <span className="leading-snug">{item.text}</span>
-            </li>
-          ))}
-        </ul>
       ) : null}
-    </div>
-  );
-}
 
-function SaveStatusIndicator({ status }: { status: "idle" | "pending" | "saving" | "saved" | "error" }) {
-  if (status === "idle") return null;
+      <MoveToCategoryDialog
+        open={moveDialogOpen}
+        currentCategoryId={selectedCategory?.id}
+        categories={categories}
+        onSelect={(targetId) => { if (question) moveQuestion(question.id, targetId); }}
+        onClose={() => setMoveDialogOpen(false)}
+      />
 
-  const content = {
-    pending: { label: "Unsaved changes", icon: <Loader2 className="h-3.5 w-3.5 animate-spin" /> },
-    saving: { label: "Saving", icon: <Loader2 className="h-3.5 w-3.5 animate-spin" /> },
-    saved: { label: "Saved", icon: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> },
-    error: { label: "Save failed", icon: <AlertCircle className="h-3.5 w-3.5 text-destructive" /> }
-  }[status];
-
-  return (
-    <span className="inline-flex h-9 items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs text-muted-foreground shadow-sm">
-      {content.icon}
-      {content.label}
-    </span>
+      <Dialog open={solutionToDelete !== null} onOpenChange={(open) => { if (!open) setSolutionToDelete(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogTitle className="text-base font-semibold">Delete approach?</DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">&ldquo;{solutionToDelete?.title}&rdquo;</span> and all its content will be permanently removed.
+          </p>
+          <div className="mt-2 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setSolutionToDelete(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (solutionToDelete) void deleteSolution(solutionToDelete.id);
+                setSolutionToDelete(null);
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </article>
   );
 }

@@ -1,0 +1,53 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import type { Category } from "@/types/knowledge";
+
+function flatCategoryList(cats: Category[], parentPath = ""): Array<{ id: string; name: string; path: string; canEdit: boolean }> {
+  return cats.flatMap((cat) => {
+    const full = parentPath ? `${parentPath} / ${cat.name}` : cat.name;
+    return [{ id: cat.id, name: cat.name, path: parentPath, canEdit: cat.canEdit }, ...flatCategoryList(cat.children, full)];
+  });
+}
+
+export function CategoryPickerDialog({
+  open,
+  excludeId,
+  categories,
+  onSelect,
+  onClose
+}: {
+  open: boolean;
+  excludeId?: string | null;
+  categories: Category[];
+  onSelect: (categoryId: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const flat = flatCategoryList(categories).filter((c) => c.canEdit && c.id !== excludeId);
+  const filtered = search.trim()
+    ? flat.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
+    : flat;
+  useEffect(() => { if (!open) setSearch(""); }, [open]);
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogTitle className="text-base font-semibold">Move to category</DialogTitle>
+        <Input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search categories…" className="mb-1" />
+        <div className="max-h-64 overflow-y-auto space-y-0.5 rounded-md border p-1">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-4 text-center text-sm text-muted-foreground">No categories found</p>
+          ) : filtered.map((c) => (
+            <button key={c.id} onClick={() => { onSelect(c.id); onClose(); }}
+              className="flex w-full flex-col rounded-md px-3 py-2 text-left text-sm hover:bg-muted">
+              <span className="font-medium">{c.name}</span>
+              {c.path ? <span className="text-xs text-muted-foreground">{c.path}</span> : null}
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
