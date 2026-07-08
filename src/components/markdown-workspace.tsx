@@ -17,6 +17,11 @@ type MarkdownWorkspaceProps = {
   onViewModeChange: (mode: MarkdownViewMode) => void;
   className?: string;
   readOnly?: boolean;
+  /** Content hasn't arrived from the server yet — show a loading state instead of an empty preview. */
+  loading?: boolean;
+  /** Content failed to load — show an error state with a retry action instead of spinning forever. */
+  error?: boolean;
+  onRetry?: () => void;
 };
 
 export function MarkdownWorkspace({
@@ -26,7 +31,10 @@ export function MarkdownWorkspace({
   viewMode,
   onViewModeChange,
   className,
-  readOnly = false
+  readOnly = false,
+  loading = false,
+  error = false,
+  onRetry
 }: MarkdownWorkspaceProps) {
   const effectiveViewMode = readOnly && viewMode === "editor" ? "preview" : viewMode;
 
@@ -155,7 +163,7 @@ export function MarkdownWorkspace({
             onMouseDown={handleDividerMouseDown}
           />
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <MarkdownPreview content={content} fillPane embedded className="h-full" readOnly={readOnly} />
+            <MarkdownPreview content={content} fillPane embedded className="h-full" readOnly={readOnly} loading={loading} error={error} onRetry={onRetry} />
           </div>
         </div>
       </div>
@@ -176,7 +184,7 @@ export function MarkdownWorkspace({
           className="min-h-0 flex-1"
         />
       ) : (
-        <MarkdownPreview content={content} fillPane embedded className="min-h-0 flex-1" readOnly={readOnly} />
+        <MarkdownPreview content={content} fillPane embedded className="min-h-0 flex-1" readOnly={readOnly} loading={loading} error={error} onRetry={onRetry} />
       )}
     </div>
   );

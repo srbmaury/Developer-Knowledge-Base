@@ -5,6 +5,14 @@ import type { ReviewResult } from "@/lib/ai-answer";
 
 export type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
 
+/**
+ * scheduleBulkSave's own debounce only needs to coalesce field-level timers that settle within
+ * the same tick (patches are already merged into pendingQuestionPatches/pendingSolutionPatches at
+ * edit time, not at flush time) — it doesn't need to re-wait a full SAVE_DEBOUNCE_MS on top of the
+ * per-field "user stopped typing" debounce, which was doubling save latency for no benefit.
+ */
+const BULK_SAVE_COALESCE_MS = 150;
+
 const contentSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const categoryNameSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const questionTitleSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -89,17 +97,31 @@ export function resolveTempSolutionEdit(tempId: string, realId: string) {
   scheduleBulkSave();
 }
 
+/**
+ * Whether a question edit has been made locally but not yet handed off to the server
+ * (still debouncing, or queued in the next bulk-save batch). Used by setInitialData to avoid
+ * clobbering an in-flight edit with stale data from a revalidation triggered by some other change.
+ */
+export function hasPendingQuestionPatch(questionId: string): boolean {
+  return pendingQuestionPatches.has(questionId);
+}
+
+/** Solution equivalent of hasPendingQuestionPatch. */
+export function hasPendingSolutionPatch(solutionId: string): boolean {
+  return pendingSolutionPatches.has(solutionId);
+}
+
 function markSavePending() {
   if (savedStatusTimer) clearTimeout(savedStatusTimer);
   setSaveStatus?.("pending");
 }
 
-export function runSave(operation: () => Promise<unknown>) {
+export function runSave(operation: () => Promise<unknown>): Promise<void> {
   activeSaveCount += 1;
   if (savedStatusTimer) clearTimeout(savedStatusTimer);
   setSaveStatus?.("saving");
 
-  void operation()
+  return operation()
     .then(() => {
       activeSaveCount -= 1;
       if (activeSaveCount === 0) {
@@ -180,10 +202,7 @@ export function scheduleQuestionDifficultySave(questionId: string, difficulty: D
     difficulty
   });
 
-  if (bulkSaveTimer) clearTimeout(bulkSaveTimer);
-  bulkSaveTimer = setTimeout(() => {
-    scheduleBulkSave();
-  }, SAVE_DEBOUNCE_MS);
+  scheduleBulkSave();
 }
 
 export function scheduleSolutionTitleSave(solutionId: string, title: string) {
@@ -226,6 +245,31 @@ export function scheduleSolutionSave(solutionId: string, content: string) {
   );
 }
 
+/**
+ * Saves a solution's current field values immediately, bypassing debounce. Used by the manual
+ * "Save" button — cancels any pending per-field debounce timers for this solution first, so they
+ * don't fire again afterwards and race/duplicate this save with stale queued data.
+ */
+export function flushSolutionSave(
+  solutionId: string,
+  patch: { title: string; language: SolutionLanguage; content: string; notes: string }
+): Promise<void> {
+  if (solutionId.startsWith("temp-")) {
+    stashTempSolutionEdit(solutionId, patch);
+    return Promise.resolve();
+  }
+
+  for (const timerMap of [contentSaveTimers, solutionTitleSaveTimers, solutionNotesSaveTimers]) {
+    const existing = timerMap.get(solutionId);
+    if (existing) clearTimeout(existing);
+    timerMap.delete(solutionId);
+  }
+  pendingSolutionPatches.delete(solutionId);
+
+  markSavePending();
+  return runSave(() => workspaceSync.updateSolution(solutionId, patch));
+}
+
 export function scheduleBulkSave() {
   if (bulkSaveTimer) clearTimeout(bulkSaveTimer);
   bulkSaveTimer = setTimeout(() => {
@@ -236,7 +280,7 @@ export function scheduleBulkSave() {
     bulkSaveTimer = null;
     if (questions.length === 0 && solutions.length === 0) return;
     runSave(() => workspaceSync.bulkSave(questions.length > 0 ? questions : undefined, solutions.length > 0 ? solutions : undefined));
-  }, SAVE_DEBOUNCE_MS);
+  }, BULK_SAVE_COALESCE_MS);
 }
 
 export function scheduleSolutionNotesSave(solutionId: string, notes: string) {

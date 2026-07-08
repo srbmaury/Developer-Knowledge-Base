@@ -4,10 +4,11 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Check, Copy } from "lucide-react";
+import { AlertTriangle, Check, Copy, Loader2 } from "lucide-react";
 import { HighlightJsTheme } from "@/components/hljs-theme";
 import { isLikelyHtml } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { getAllQuestions, useWorkspaceStore } from "@/store/workspace-store";
 
 /** Replace [[Title]] with [Title](wiki:Title) before markdown parsing. */
@@ -33,6 +34,11 @@ type MarkdownPreviewProps = {
   fillPane?: boolean;
   embedded?: boolean;
   readOnly?: boolean;
+  /** Content hasn't arrived from the server yet — show a loading state instead of "Nothing to preview yet". */
+  loading?: boolean;
+  /** Content failed to load — show an error state with a retry action instead of spinning forever. */
+  error?: boolean;
+  onRetry?: () => void;
 };
 
 function MermaidDiagram({ chart }: { chart: string }) {
@@ -207,7 +213,7 @@ function makeMarkdownComponents() {
 
 const defaultMarkdownComponents = makeMarkdownComponents();
 
-export function MarkdownPreview({ content, className, fillPane, embedded, readOnly = false }: MarkdownPreviewProps) {
+export function MarkdownPreview({ content, className, fillPane, embedded, readOnly = false, loading = false, error = false, onRetry }: MarkdownPreviewProps) {
   const processedContent = useMemo(() => preprocessWikiLinks(content), [content]);
   const legacyHtml = isLikelyHtml(content);
 
@@ -221,6 +227,47 @@ export function MarkdownPreview({ content, className, fillPane, embedded, readOn
     fillPane ? "h-full flex-1" : "min-h-[480px]",
     className
   );
+
+  if (error) {
+    return (
+      <div className={shellClass}>
+        <HighlightJsTheme />
+        {!embedded ? (
+          <div className="border-b bg-muted/40 px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preview</span>
+          </div>
+        ) : null}
+        <div className={cn(bodyClass, "flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground")}>
+          <div className="flex items-center gap-2 text-destructive">
+            <AlertTriangle className="h-4 w-4" />
+            Couldn&rsquo;t load this content.
+          </div>
+          {onRetry ? (
+            <Button type="button" size="sm" variant="outline" onClick={onRetry}>
+              Retry
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className={shellClass}>
+        <HighlightJsTheme />
+        {!embedded ? (
+          <div className="border-b bg-muted/40 px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preview</span>
+          </div>
+        ) : null}
+        <div className={cn(bodyClass, "flex items-center justify-center gap-2 text-sm text-muted-foreground")}>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading…
+        </div>
+      </div>
+    );
+  }
 
   const looksEscapedHtml = content.includes("&lt;") || content.includes("&gt;");
 
@@ -251,7 +298,7 @@ export function MarkdownPreview({ content, className, fillPane, embedded, readOn
       <div className={bodyClass}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight]}
+          rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
           components={defaultMarkdownComponents}
           urlTransform={urlTransform}
         >

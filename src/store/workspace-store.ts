@@ -30,6 +30,8 @@ type WorkspaceData = {
   creatingCategoryKeys: string[];
   creatingQuestionCategoryIds: string[];
   creatingSolutionQuestionIds: string[];
+  /** Solutions whose content failed to load from the server; retry-able via fetchSolutionContent. */
+  failedSolutionContentIds: string[];
   saveStatus: SaveStatus;
   query: string;
   commandOpen: boolean;
@@ -64,6 +66,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         creatingCategoryKeys: [],
         creatingQuestionCategoryIds: [],
         creatingSolutionQuestionIds: [],
+        failedSolutionContentIds: [],
         saveStatus: "idle",
         query: "",
         commandOpen: false,

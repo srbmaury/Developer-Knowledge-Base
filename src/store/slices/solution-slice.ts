@@ -187,7 +187,12 @@ export const createSolutionSlice: StateCreator<WorkspaceState, [], [], SolutionS
   },
   fetchSolutionContent: async (solutionId) => {
     const result = await workspaceSync.getSolutionContent(solutionId);
-    if (!result.ok) return;
+    if (!result.ok) {
+      set((state) => ({
+        failedSolutionContentIds: setPendingValue(state.failedSolutionContentIds, solutionId, true)
+      }));
+      return;
+    }
     set((state) => {
       const loc = state.solutionIdToLocation.get(solutionId);
       const categories = updateSolutionInTree(state.categories, solutionId, (solution) => ({
@@ -196,13 +201,16 @@ export const createSolutionSlice: StateCreator<WorkspaceState, [], [], SolutionS
         notes: result.notes,
         aiReview: result.aiReview,
         contentLoaded: true
-      }));
+      }), { touchUpdatedAt: false });
       if (loc && state.searchIndex) {
         const cat = findCategory(categories, loc.categoryId);
         const q = cat?.questions.find((item) => item.id === loc.questionId);
         if (q) incrementalIndexUpdate(state.searchIndex, q);
       }
-      return { categories };
+      return {
+        categories,
+        failedSolutionContentIds: setPendingValue(state.failedSolutionContentIds, solutionId, false)
+      };
     });
   },
   updateSolutionAiReview: (solutionId, review) => {

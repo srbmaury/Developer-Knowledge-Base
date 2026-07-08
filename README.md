@@ -16,17 +16,23 @@ A developer-focused personal knowledge base built with Next.js 15, TypeScript, T
 - **Per-user workspaces** with Supabase email/password sign-in
 - AI answer generation and AI solution review (via OpenAI)
 - PostgreSQL persistence via Prisma and Neon
+- API rate limiting (Upstash Redis, falls back to in-memory if unset)
+- Sentry error monitoring (client and server, optional)
+- Admin dashboard with per-user usage stats (email-gated via `ADMIN_EMAIL`)
+- Account deletion and legal pages (Terms of Service, Privacy Policy)
 
 ## App pages
 
-This app exposes 6 top-level views (besides `/login`):
-
-- `/` (workspace home)
-- `/most-viewed` (most viewed notes)
-- `/starred` (user favorites)
-- `/review` (spaced repetition review queue)
-- `/stats` (activity and progress stats)
-- `/public` (public/shared notes)
+- `/` — workspace home
+- `/most-viewed` — most viewed notes
+- `/starred` — user favorites
+- `/review` — spaced repetition review queue
+- `/stats` — activity and progress stats
+- `/public` — public/shared notes
+- `/account` — account settings and account deletion
+- `/admin` — admin dashboard (restricted to `ADMIN_EMAIL`)
+- `/terms`, `/privacy` — legal pages
+- `/login` — sign in / sign up
 
 
 ## Prerequisites
@@ -125,6 +131,9 @@ prisma               Schema and migrations
 ```bash
 npm run dev              # Development server
 npm run build            # Production build
+npm run lint             # ESLint
+npm run typecheck        # TypeScript type checking (tsc --noEmit)
+npm run test             # Run tests (Vitest)
 npm run prisma:migrate   # Apply migrations
 npm run prisma:reset     # Reset DB and migrate (empty workspace)
 npm run prisma:seed      # No-op seed (empty workspace)

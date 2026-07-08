@@ -104,3 +104,11 @@ textarea {
   padding: 0.1rem 0.35rem;
   font-size: 0.875em;
 }
+
+/* Tailwind Typography wraps inline code in literal backticks via ::before/::after; we render our own background instead. */
+.markdown-preview code::before,
+.markdown-preview code::after,
+.markdown-preview-body code::before,
+.markdown-preview-body code::after {
+  content: "" !important;
+}

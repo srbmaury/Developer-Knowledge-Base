@@ -150,8 +150,11 @@ export function updateSolutionInTree(
   categories: Category[],
   solutionId: string,
   updater: (solution: Solution) => Solution,
-  opts?: { categoryIdToMutate?: string; questionIdToMutate?: string }
+  opts?: { categoryIdToMutate?: string; questionIdToMutate?: string; touchUpdatedAt?: boolean }
 ): Category[] {
+  // Lazily hydrating a solution's content from the server (fetchSolutionContent) is not an edit —
+  // it must not bump updatedAt, or the question card flashes "Updated just now" on every first open.
+  const touchUpdatedAt = opts?.touchUpdatedAt ?? true;
   const now = new Date().toISOString();
 
   return mapCategories(categories, (category) => {
@@ -169,9 +172,11 @@ export function updateSolutionInTree(
 
         return {
           ...question,
-          updatedAt: now,
+          ...(touchUpdatedAt ? { updatedAt: now } : {}),
           solutions: question.solutions.map((solution) =>
-            solution.id === solutionId ? updater({ ...solution, updatedAt: now }) : solution
+            solution.id === solutionId
+              ? updater(touchUpdatedAt ? { ...solution, updatedAt: now } : solution)
+              : solution
           )
         };
       })
