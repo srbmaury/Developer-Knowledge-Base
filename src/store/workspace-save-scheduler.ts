@@ -21,6 +21,34 @@ const solutionTitleSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const solutionNotesSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingQuestionPatches = new Map<string, { title?: string; description?: string; difficulty?: Difficulty }>();
 const pendingSolutionPatches = new Map<string, { title?: string; language?: SolutionLanguage; content?: string; notes?: string; aiReview?: ReviewResult | null }>();
+const inFlightQuestionPatchCounts = new Map<string, number>();
+const inFlightSolutionPatchCounts = new Map<string, number>();
+
+function incrementInFlightQuestionCount(questionId: string) {
+  inFlightQuestionPatchCounts.set(questionId, (inFlightQuestionPatchCounts.get(questionId) ?? 0) + 1);
+}
+
+function decrementInFlightQuestionCount(questionId: string) {
+  const count = inFlightQuestionPatchCounts.get(questionId) ?? 0;
+  if (count <= 1) {
+    inFlightQuestionPatchCounts.delete(questionId);
+  } else {
+    inFlightQuestionPatchCounts.set(questionId, count - 1);
+  }
+}
+
+function incrementInFlightSolutionCount(solutionId: string) {
+  inFlightSolutionPatchCounts.set(solutionId, (inFlightSolutionPatchCounts.get(solutionId) ?? 0) + 1);
+}
+
+function decrementInFlightSolutionCount(solutionId: string) {
+  const count = inFlightSolutionPatchCounts.get(solutionId) ?? 0;
+  if (count <= 1) {
+    inFlightSolutionPatchCounts.delete(solutionId);
+  } else {
+    inFlightSolutionPatchCounts.set(solutionId, count - 1);
+  }
+}
 
 /**
  * Edits made while a question/solution still has a client-side "temp-" id (i.e. before the
@@ -43,11 +71,49 @@ export function registerSaveStatusSetter(setter: (status: SaveStatus) => void) {
   setSaveStatus ??= setter;
 }
 
+/** Resets module-local scheduler state for tests. */
+export function resetSaveScheduler() {
+  for (const timerMap of [
+    contentSaveTimers,
+    categoryNameSaveTimers,
+    questionTitleSaveTimers,
+    questionDescriptionSaveTimers,
+    solutionTitleSaveTimers,
+    solutionNotesSaveTimers
+  ]) {
+    for (const timer of timerMap.values()) {
+      clearTimeout(timer);
+    }
+    timerMap.clear();
+  }
+
+  if (bulkSaveTimer) {
+    clearTimeout(bulkSaveTimer);
+    bulkSaveTimer = null;
+  }
+  if (savedStatusTimer) {
+    clearTimeout(savedStatusTimer);
+    savedStatusTimer = null;
+  }
+
+  pendingQuestionPatches.clear();
+  pendingSolutionPatches.clear();
+  tempQuestionEdits.clear();
+  tempSolutionEdits.clear();
+  inFlightQuestionPatchCounts.clear();
+  inFlightSolutionPatchCounts.clear();
+  activeSaveCount = 0;
+  setSaveStatus = null;
+}
+
 /** Cancels a pending debounced content save (e.g. when the solution is being deleted). */
 export function cancelPendingSolutionSave(solutionId: string) {
-  const pendingSave = contentSaveTimers.get(solutionId);
-  if (pendingSave) clearTimeout(pendingSave);
-  contentSaveTimers.delete(solutionId);
+  for (const timerMap of [contentSaveTimers, solutionTitleSaveTimers, solutionNotesSaveTimers]) {
+    const existing = timerMap.get(solutionId);
+    if (existing) clearTimeout(existing);
+    timerMap.delete(solutionId);
+  }
+  pendingSolutionPatches.delete(solutionId);
 }
 
 /** Queues a solution patch (e.g. language change) into the next bulk save without its own debounce timer. */
@@ -103,12 +169,12 @@ export function resolveTempSolutionEdit(tempId: string, realId: string) {
  * clobbering an in-flight edit with stale data from a revalidation triggered by some other change.
  */
 export function hasPendingQuestionPatch(questionId: string): boolean {
-  return pendingQuestionPatches.has(questionId);
+  return pendingQuestionPatches.has(questionId) || inFlightQuestionPatchCounts.has(questionId);
 }
 
 /** Solution equivalent of hasPendingQuestionPatch. */
 export function hasPendingSolutionPatch(solutionId: string): boolean {
-  return pendingSolutionPatches.has(solutionId);
+  return pendingSolutionPatches.has(solutionId) || inFlightSolutionPatchCounts.has(solutionId);
 }
 
 function markSavePending() {
@@ -265,9 +331,12 @@ export function flushSolutionSave(
     timerMap.delete(solutionId);
   }
   pendingSolutionPatches.delete(solutionId);
+  incrementInFlightSolutionCount(solutionId);
 
   markSavePending();
-  return runSave(() => workspaceSync.updateSolution(solutionId, patch));
+  return runSave(() => workspaceSync.updateSolution(solutionId, patch)).finally(() => {
+    decrementInFlightSolutionCount(solutionId);
+  });
 }
 
 export function scheduleBulkSave() {
@@ -275,11 +344,24 @@ export function scheduleBulkSave() {
   bulkSaveTimer = setTimeout(() => {
     const questions = [...pendingQuestionPatches.entries()].map(([questionId, patch]) => ({ questionId, ...patch }));
     const solutions = [...pendingSolutionPatches.entries()].map(([solutionId, patch]) => ({ solutionId, ...patch }));
+    for (const { questionId } of questions) {
+      incrementInFlightQuestionCount(questionId);
+    }
+    for (const { solutionId } of solutions) {
+      incrementInFlightSolutionCount(solutionId);
+    }
     pendingQuestionPatches.clear();
     pendingSolutionPatches.clear();
     bulkSaveTimer = null;
     if (questions.length === 0 && solutions.length === 0) return;
-    runSave(() => workspaceSync.bulkSave(questions.length > 0 ? questions : undefined, solutions.length > 0 ? solutions : undefined));
+    runSave(() => workspaceSync.bulkSave(questions.length > 0 ? questions : undefined, solutions.length > 0 ? solutions : undefined)).finally(() => {
+      for (const { questionId } of questions) {
+        decrementInFlightQuestionCount(questionId);
+      }
+      for (const { solutionId } of solutions) {
+        decrementInFlightSolutionCount(solutionId);
+      }
+    });
   }, BULK_SAVE_COALESCE_MS);
 }
 
@@ -289,10 +371,34 @@ export function scheduleSolutionNotesSave(solutionId: string, notes: string) {
   if (existing) clearTimeout(existing);
   markSavePending();
 
+  pendingSolutionPatches.set(solutionId, {
+    ...pendingSolutionPatches.get(solutionId),
+    notes
+  });
+
   solutionNotesSaveTimers.set(
     solutionId,
     setTimeout(() => {
-      runSave(() => workspaceSync.updateSolution(solutionId, { notes }));
+      const currentPending = pendingSolutionPatches.get(solutionId);
+      if (!currentPending) {
+        solutionNotesSaveTimers.delete(solutionId);
+        return;
+      }
+
+      const patchToSend = { notes: currentPending.notes };
+      const remainingPatch = { ...currentPending };
+      delete remainingPatch.notes;
+
+      if (Object.keys(remainingPatch).length === 0) {
+        pendingSolutionPatches.delete(solutionId);
+      } else {
+        pendingSolutionPatches.set(solutionId, remainingPatch);
+      }
+
+      incrementInFlightSolutionCount(solutionId);
+      runSave(() => workspaceSync.updateSolution(solutionId, patchToSend)).finally(() => {
+        decrementInFlightSolutionCount(solutionId);
+      });
       solutionNotesSaveTimers.delete(solutionId);
     }, SAVE_DEBOUNCE_MS)
   );

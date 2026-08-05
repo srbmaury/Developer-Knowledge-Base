@@ -18,28 +18,37 @@ import type { WorkspaceState } from "../workspace-store";
  * Also keep any field with a save still in flight/debouncing so an unrelated revalidation elsewhere
  * can't revert an edit the user just made before it reaches the server.
  */
+function isLocallyNewer(local: { updatedAt: string }, incoming: { updatedAt: string }) {
+  return local.updatedAt >= incoming.updatedAt;
+}
+
 function mergeIncomingSolution(incoming: Solution, local: Solution | undefined): Solution {
   if (!local) return incoming;
   const keepContent = local.contentLoaded && !incoming.contentLoaded;
   const pending = hasPendingSolutionPatch(incoming.id);
+  const keepLocal = pending || isLocallyNewer(local, incoming);
+  const keepLocalOrContent = keepContent || keepLocal;
+
   return {
     ...incoming,
-    title: pending ? local.title : incoming.title,
-    language: pending ? local.language : incoming.language,
-    content: keepContent || pending ? local.content : incoming.content,
-    notes: keepContent || pending ? local.notes : incoming.notes,
-    aiReview: keepContent ? local.aiReview : incoming.aiReview,
-    contentLoaded: keepContent ? true : incoming.contentLoaded
+    title: keepLocal ? local.title : incoming.title,
+    language: keepLocal ? local.language : incoming.language,
+    content: keepLocalOrContent ? local.content : incoming.content,
+    notes: keepLocalOrContent ? local.notes : incoming.notes,
+    aiReview: keepLocalOrContent ? local.aiReview : incoming.aiReview,
+    contentLoaded: keepLocalOrContent ? local.contentLoaded : incoming.contentLoaded
   };
 }
 
 function mergeIncomingQuestion(incoming: Question, local: Question | undefined): Question {
   const pending = local && hasPendingQuestionPatch(incoming.id);
+  const keepLocal = local ? pending || isLocallyNewer(local, incoming) : false;
+
   return {
     ...incoming,
-    title: pending ? local!.title : incoming.title,
-    description: pending ? local!.description : incoming.description,
-    difficulty: pending ? local!.difficulty : incoming.difficulty,
+    title: keepLocal ? local!.title : incoming.title,
+    description: keepLocal ? local!.description : incoming.description,
+    difficulty: keepLocal ? local!.difficulty : incoming.difficulty,
     srDue: !incoming.srDue && local?.srDue ? local.srDue : incoming.srDue,
     solutions: incoming.solutions.map((s) =>
       mergeIncomingSolution(s, local?.solutions.find((ls) => ls.id === s.id))
