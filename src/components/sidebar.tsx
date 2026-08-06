@@ -257,7 +257,14 @@ export function Sidebar({
             <span className="font-medium text-foreground">{totalQuestionsCount(categories)}</span> notes
           </p>
         </div>
-        <Button className="h-7 w-7" size="icon" variant="ghost" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")} aria-label="Toggle theme" title={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+        <Button
+          className="h-7 w-7"
+          size="icon"
+          variant="ghost"
+          onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+          aria-label="Toggle theme"
+          title={themeMounted ? (resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode") : "Toggle theme"}
+        >
           {themeMounted ? (resolvedTheme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <Moon className="h-4 w-4" />}
         </Button>
         <Button className="h-7 w-7" size="icon" variant="ghost" onClick={onCollapse} aria-label="Collapse sidebar" title="Collapse sidebar">

@@ -4,6 +4,7 @@ import { workspaceSync } from "@/lib/workspace-sync";
 import type { ReviewResult } from "@/lib/ai-answer";
 import type { Solution, SolutionLanguage } from "@/types/knowledge";
 import {
+  buildQuestionIndex,
   canEditQuestion,
   canEditSolution,
   findCategory,
@@ -123,6 +124,7 @@ export const createSolutionSlice: StateCreator<WorkspaceState, [], [], SolutionS
 
       return {
         categories,
+        questionById: buildQuestionIndex(categories),
         selectedSolutionId: nextSolutionId
       };
     });
@@ -131,17 +133,25 @@ export const createSolutionSlice: StateCreator<WorkspaceState, [], [], SolutionS
   },
   updateSolutionTitle: (solutionId, title) => {
     if (!canEditSolution(get().categories, solutionId)) return;
-    set((state) => ({
-      categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, title }))
-    }));
+    set((state) => {
+      const categories = updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, title }));
+      return {
+        categories,
+        questionById: buildQuestionIndex(categories)
+      };
+    });
     scheduleSolutionTitleSave(solutionId, title);
   },
   updateSolutionLanguage: (solutionId, language) => {
     if (!canEditSolution(get().categories, solutionId)) return;
-    set((state) => ({
-      categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, language })),
-      ...(language !== "none" ? { defaultLanguage: language } : {})
-    }));
+    set((state) => {
+      const categories = updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, language }));
+      return {
+        categories,
+        questionById: buildQuestionIndex(categories),
+        ...(language !== "none" ? { defaultLanguage: language } : {})
+      };
+    });
     if (solutionId.startsWith("temp-")) {
       stashTempSolutionEdit(solutionId, { language });
     } else {
@@ -163,7 +173,10 @@ export const createSolutionSlice: StateCreator<WorkspaceState, [], [], SolutionS
         const q = cat?.questions.find((item) => item.id === loc.questionId);
         if (q) incrementalIndexUpdate(state.searchIndex, q);
       }
-      return { categories };
+      return {
+        categories,
+        questionById: buildQuestionIndex(categories)
+      };
     });
     scheduleSolutionSave(solutionId, content);
   },
@@ -181,13 +194,21 @@ export const createSolutionSlice: StateCreator<WorkspaceState, [], [], SolutionS
         const q = cat?.questions.find((item) => item.id === loc.questionId);
         if (q) incrementalIndexUpdate(state.searchIndex, q);
       }
-      return { categories };
+      return {
+        categories,
+        questionById: buildQuestionIndex(categories)
+      };
     });
     scheduleSolutionNotesSave(solutionId, notes);
   },
   fetchSolutionContent: async (solutionId) => {
     const result = await workspaceSync.getSolutionContent(solutionId);
-    if (!result.ok) return;
+    if (!result.ok) {
+      set((state) => ({
+        failedSolutionContentIds: setPendingValue(state.failedSolutionContentIds, solutionId, true)
+      }));
+      return;
+    }
     set((state) => {
       const loc = state.solutionIdToLocation.get(solutionId);
       const categories = updateSolutionInTree(state.categories, solutionId, (solution) => ({
@@ -196,20 +217,28 @@ export const createSolutionSlice: StateCreator<WorkspaceState, [], [], SolutionS
         notes: result.notes,
         aiReview: result.aiReview,
         contentLoaded: true
-      }));
+      }), { touchUpdatedAt: false });
       if (loc && state.searchIndex) {
         const cat = findCategory(categories, loc.categoryId);
         const q = cat?.questions.find((item) => item.id === loc.questionId);
         if (q) incrementalIndexUpdate(state.searchIndex, q);
       }
-      return { categories };
+      return {
+        categories,
+        questionById: buildQuestionIndex(categories),
+        failedSolutionContentIds: setPendingValue(state.failedSolutionContentIds, solutionId, false)
+      };
     });
   },
   updateSolutionAiReview: (solutionId, review) => {
     if (!canEditSolution(get().categories, solutionId)) return;
-    set((state) => ({
-      categories: updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, aiReview: review }))
-    }));
+    set((state) => {
+      const categories = updateSolutionInTree(state.categories, solutionId, (solution) => ({ ...solution, aiReview: review }));
+      return {
+        categories,
+        questionById: buildQuestionIndex(categories)
+      };
+    });
     void workspaceSync.updateSolution(solutionId, { aiReview: review });
   }
 });

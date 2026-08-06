@@ -112,15 +112,27 @@ beforeEach(async () => {
   for (const key of Object.keys(lsStore)) delete lsStore[key];
 
   const { useWorkspaceStore } = await import("@/store/workspace-store");
+  const { resetSaveScheduler } = await import("@/store/workspace-save-scheduler");
+  resetSaveScheduler();
+
   useWorkspaceStore.setState({
     categories: [],
     selectedCategoryId: null,
     selectedQuestionId: null,
     selectedSolutionId: null,
     expandedCategoryIds: [],
+    questionById: new Map(),
     questionIdToCategoryId: new Map(),
     solutionIdToLocation: new Map(),
-    defaultLanguage: "typescript"
+    searchIndex: null,
+    defaultLanguage: "typescript",
+    creatingCategoryKeys: [],
+    creatingQuestionCategoryIds: [],
+    creatingSolutionQuestionIds: [],
+    failedSolutionContentIds: [],
+    filterStatus: null,
+    allTags: [],
+    filterTagIds: []
   });
 });
 
@@ -207,6 +219,48 @@ describe("setInitialData", () => {
 
     expect(store.getState().questionIdToCategoryId.get("q1")).toBe("cat-a");
     expect(store.getState().questionIdToCategoryId.get("q2")).toBe("cat-b");
+  });
+
+  it("keeps local edits when a save is pending and setInitialData arrives", async () => {
+    const store = await getStore();
+    const q1 = makeQuestion("q1", "cat-a");
+    const catA = makeCategory("cat-a", { questions: [q1] });
+    store.getState().setInitialData([catA]);
+
+    store.getState().updateQuestionTitle("q1", "Local edit");
+
+    const remoteQuestion = { ...q1, title: "Remote title", updatedAt: new Date(Date.now() - 5000).toISOString() };
+    const remoteCategory = makeCategory("cat-a", { questions: [remoteQuestion] });
+    store.getState().setInitialData([remoteCategory]);
+
+    expect(store.getState().questionById.get("q1")?.title).toBe("Local edit");
+  });
+
+  it("keeps local solution content/notes when stale remote data arrives after a save", async () => {
+    const store = await getStore();
+    const q1 = makeQuestion("q1", "cat-a");
+    const catA = makeCategory("cat-a", { questions: [q1] });
+    store.getState().setInitialData([catA]);
+
+    store.getState().updateSolutionContent("sol-q1", "const x = 1;");
+    store.getState().updateSolutionNotes("sol-q1", "Remember edge cases.");
+
+    const remoteSolution = {
+      ...q1.solutions[0],
+      content: "",
+      notes: "",
+      aiReview: null,
+      contentLoaded: false,
+      updatedAt: new Date(Date.now() - 5000).toISOString()
+    };
+    const remoteQuestion = { ...q1, solutions: [remoteSolution], updatedAt: new Date(Date.now() - 5000).toISOString() };
+    const remoteCategory = makeCategory("cat-a", { questions: [remoteQuestion] });
+
+    store.getState().setInitialData([remoteCategory]);
+
+    const q = store.getState().categories[0].questions[0];
+    expect(q.solutions[0].content).toBe("const x = 1;");
+    expect(q.solutions[0].notes).toBe("Remember edge cases.");
   });
 });
 
@@ -300,6 +354,9 @@ describe("updateQuestionTitle", () => {
     const store = await getStore();
     const catA = makeCategory("cat-a", { questions: [makeQuestion("q1", "cat-a")], canEdit: false });
     store.getState().setInitialData([catA]);
+
+    console.log('DEBUG canEdit', store.getState().categories[0].canEdit);
+    console.log('DEBUG categories', JSON.stringify(store.getState().categories, null, 2));
 
     store.getState().updateQuestionTitle("q1", "Ignored");
 

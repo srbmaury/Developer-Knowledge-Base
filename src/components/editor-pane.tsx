@@ -6,12 +6,11 @@ import type { ReviewResult } from "@/lib/ai-answer";
 import { toast } from "sonner";
 import { DIFFICULTIES, LANGUAGES, difficultyBadgeClass } from "@/lib/constants";
 import { TAG_COLOR_CLASSES } from "@/lib/tag-colors";
-import { workspaceSync } from "@/lib/workspace-sync";
+import { flushSolutionSave } from "@/store/workspace-save-scheduler";
 import { cn } from "@/lib/utils";
 import { getAllQuestions, getCategoryForQuestion, useWorkspaceStore } from "@/store/workspace-store";
 import type { Difficulty, SolutionLanguage, Solution } from "@/types/knowledge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,14 +24,20 @@ import { TagManagerButton } from "@/components/editor/tag-manager-button";
 import { SaveStatusIndicator } from "@/components/editor/save-status-indicator";
 
 export function EditorPane() {
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [reviewingSolutionId, setReviewingSolutionId] = useState<string | null>(null);
+  const [generatingSolutionIds, setGeneratingSolutionIds] = useState(new Set<string>());
+  const [reviewingSolutionIds, setReviewingSolutionIds] = useState(new Set<string>());
   const [justReviewedSolutionId, setJustReviewedSolutionId] = useState<string | null>(null);
   const [reviewedSolutionIds, setReviewedSolutionIds] = useState(new Set<string>());
-  const [solutionToDelete, setSolutionToDelete] = useState<Solution | null>(null);
+  const [pendingDeleteSolutionIds, setPendingDeleteSolutionIds] = useState(new Set<string>());
   const [contentView, setContentView] = useState<MarkdownViewMode>("preview");
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const previousQuestionId = useRef<string | null>(null);
+  const deleteSolutionTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    const timers = deleteSolutionTimers.current;
+    return () => { timers.forEach(clearTimeout); };
+  }, []);
   const {
     categories,
     selectedQuestionId,
@@ -50,6 +55,8 @@ export function EditorPane() {
     toggleFavorite,
     toggleImportant,
     creatingSolutionQuestionIds,
+    failedSolutionContentIds,
+    fetchSolutionContent,
     saveStatus,
     updateSolutionAiReview,
     updateQuestionStatus,
@@ -66,7 +73,11 @@ export function EditorPane() {
     () => (question ? computeBacklinks(categories, question.id) : []),
     [categories, question]
   );
-  const solution = question?.solutions.find((item) => item.id === selectedSolutionId) ?? question?.solutions[0];
+  const visibleSolutions = useMemo(
+    () => question?.solutions.filter((item) => !pendingDeleteSolutionIds.has(item.id)) ?? [],
+    [question, pendingDeleteSolutionIds]
+  );
+  const solution = visibleSolutions.find((item) => item.id === selectedSolutionId) ?? visibleSolutions[0];
   const selectedCategory = getCategoryForQuestion(categories, question?.id);
   const canEdit = selectedCategory?.canEdit ?? false;
   const questionDescription = question?.description;
@@ -110,17 +121,20 @@ export function EditorPane() {
 
   async function generateAnswer() {
     if (!question || !solution) return;
+    const targetQuestion = question;
+    const targetSolution = solution;
+    const previousContent = targetSolution.content;
 
-    setIsGenerating(true);
+    setGeneratingSolutionIds((prev) => new Set(prev).add(targetSolution.id));
     try {
       const response = await fetch("/api/ai/generate-answer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          questionTitle: question.title,
-          questionDescription: question.description,
-          difficulty: question.difficulty,
-          language: solution.language,
+          questionTitle: targetQuestion.title,
+          questionDescription: targetQuestion.description,
+          difficulty: targetQuestion.difficulty,
+          language: targetSolution.language,
           defaultLanguage: useWorkspaceStore.getState().defaultLanguage
         })
       });
@@ -139,21 +153,45 @@ export function EditorPane() {
         throw new Error(data.error ?? (raw || "Unable to generate an answer."));
       }
 
-      if (data.difficulty && data.difficulty !== question.difficulty) {
-        updateQuestionDifficulty(question.id, data.difficulty);
+      if (data.difficulty && data.difficulty !== targetQuestion.difficulty) {
+        updateQuestionDifficulty(targetQuestion.id, data.difficulty);
       }
 
-      updateSolutionContent(solution.id, data.content);
-      setContentView("preview");
-      toast.success(
-        data.difficulty && data.difficulty !== question.difficulty
+      updateSolutionContent(targetSolution.id, data.content);
+      // Only steal the view into "preview" if the user is still looking at this solution —
+      // otherwise a generation finishing for a question the user has since navigated away from
+      // would yank whatever question they're currently on into preview mode.
+      if (useWorkspaceStore.getState().selectedSolutionId === targetSolution.id) {
+        setContentView("preview");
+      }
+      const successMessage =
+        data.difficulty && data.difficulty !== targetQuestion.difficulty
           ? `Answer generated · difficulty set to ${data.difficulty}`
-          : "Markdown answer generated"
-      );
+          : "Markdown answer generated";
+
+      if (previousContent.trim()) {
+        // Generation overwrites whatever was there — give an explicit way back since there's
+        // no confirm-before-overwrite step (AI answers can take a few seconds; blocking on a
+        // dialog first would add friction for the common case of an empty/placeholder solution).
+        toast(successMessage, {
+          description: "Replaced existing content.",
+          action: {
+            label: "Undo",
+            onClick: () => updateSolutionContent(targetSolution.id, previousContent)
+          },
+          duration: 8000
+        });
+      } else {
+        toast.success(successMessage);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to generate an answer.");
     } finally {
-      setIsGenerating(false);
+      setGeneratingSolutionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(targetSolution.id);
+        return next;
+      });
     }
   }
 
@@ -161,7 +199,7 @@ export function EditorPane() {
     if (!question || !solution || !solution.content.trim()) return;
 
     const targetId = solution.id;
-    setReviewingSolutionId(targetId);
+    setReviewingSolutionIds((prev) => new Set(prev).add(targetId));
     try {
       const response = await fetch("/api/ai/review-answer", {
         method: "POST",
@@ -192,8 +230,41 @@ export function EditorPane() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to review the answer.");
     } finally {
-      setReviewingSolutionId(null);
+      setReviewingSolutionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(targetId);
+        return next;
+      });
     }
+  }
+
+  function handleDeleteSolutionRequest(item: Solution) {
+    setPendingDeleteSolutionIds((prev) => new Set(prev).add(item.id));
+    const timer = setTimeout(() => {
+      void deleteSolution(item.id);
+      setPendingDeleteSolutionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+      deleteSolutionTimers.current.delete(item.id);
+    }, 5000);
+    deleteSolutionTimers.current.set(item.id, timer);
+    toast(`"${item.title || "Untitled approach"}" deleted`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          clearTimeout(deleteSolutionTimers.current.get(item.id));
+          deleteSolutionTimers.current.delete(item.id);
+          setPendingDeleteSolutionIds((prev) => {
+            const next = new Set(prev);
+            next.delete(item.id);
+            return next;
+          });
+        }
+      },
+      duration: 5000
+    });
   }
 
   if (!question || !solution) {
@@ -340,7 +411,7 @@ export function EditorPane() {
         <Tabs value={solution.id} onValueChange={selectSolution} className="mt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <TabsList className="max-w-full overflow-x-auto">
-              {question.solutions.map((item) => (
+              {visibleSolutions.map((item) => (
                 <TabsTrigger key={item.id} value={item.id}>
                   {item.title}
                 </TabsTrigger>
@@ -372,20 +443,20 @@ export function EditorPane() {
                     {isCreatingSolution ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                     {isCreatingSolution ? "Adding" : "Solution"}
                   </Button>
-              <Button variant="outline" onClick={generateAnswer} disabled={isGenerating}>
+              <Button variant="outline" onClick={generateAnswer} disabled={generatingSolutionIds.has(solution.id)}>
                 <Bot className="h-4 w-4" />
-                {isGenerating ? "Generating…" : "AI answer"}
+                {generatingSolutionIds.has(solution.id) ? "Generating…" : "AI answer"}
               </Button>
               <Button
                 variant="outline"
                 onClick={() => void reviewSolution()}
-                disabled={reviewingSolutionId !== null || !solution.content.trim()}
+                disabled={reviewingSolutionIds.has(solution.id) || !solution.content.trim()}
                 title={!solution.content.trim() ? "Add some content before reviewing" : undefined}
               >
-                {reviewingSolutionId === solution.id
+                {reviewingSolutionIds.has(solution.id)
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : <MessageSquare className="h-4 w-4" />}
-                {reviewingSolutionId === solution.id
+                {reviewingSolutionIds.has(solution.id)
                   ? "Reviewing…"
                   : reviewedSolutionIds.has(solution.id)
                   ? "Re-review"
@@ -396,7 +467,7 @@ export function EditorPane() {
             </div>
           </div>
 
-          {question.solutions.map((item) => (
+          {visibleSolutions.map((item) => (
             <TabsContent key={item.id} value={item.id} className="mt-4">
               <section className="min-w-0 overflow-hidden rounded-lg border bg-card shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
@@ -430,13 +501,17 @@ export function EditorPane() {
                           size="sm"
                           variant="ghost"
                           onClick={async () => {
-                            await workspaceSync.updateSolution(item.id, {
+                            await flushSolutionSave(item.id, {
                               title: item.title,
                               language: item.language,
                               content: item.content,
                               notes: item.notes
                             });
-                            toast.success("Saved");
+                            if (useWorkspaceStore.getState().saveStatus === "error") {
+                              toast.error("Failed to save. Please try again.");
+                            } else {
+                              toast.success("Saved");
+                            }
                           }}
                         >
                           <Save className="h-4 w-4" />
@@ -445,17 +520,17 @@ export function EditorPane() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          disabled={question.solutions.length <= 1}
+                          disabled={visibleSolutions.length <= 1}
                           title={
-                            question.solutions.length <= 1
+                            visibleSolutions.length <= 1
                               ? "Each question must keep at least one approach"
                               : "Delete approach"
                           }
                           onClick={() => {
-                            if (question.solutions.length <= 1) return;
-                            setSolutionToDelete(item);
+                            if (visibleSolutions.length <= 1) return;
+                            handleDeleteSolutionRequest(item);
                           }}
-                          aria-label="Delete approach"
+                          aria-label={`Delete ${item.title || "approach"}`}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
@@ -471,6 +546,9 @@ export function EditorPane() {
                   viewMode={contentView}
                   onViewModeChange={setContentView}
                   readOnly={!canEdit}
+                  loading={!item.contentLoaded && !failedSolutionContentIds.includes(item.id)}
+                  error={failedSolutionContentIds.includes(item.id)}
+                  onRetry={() => void fetchSolutionContent(item.id)}
                 />
 
                 {(canEdit || item.notes) ? (
@@ -485,7 +563,7 @@ export function EditorPane() {
                     />
                   </div>
                 ) : null}
-                {reviewingSolutionId === item.id ? (
+                {reviewingSolutionIds.has(item.id) ? (
                   <div className="border-t px-4 py-4 flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin shrink-0" />
                     <span>AI is reviewing your solution…</span>
@@ -537,26 +615,6 @@ export function EditorPane() {
         onClose={() => setMoveDialogOpen(false)}
       />
 
-      <Dialog open={solutionToDelete !== null} onOpenChange={(open) => { if (!open) setSolutionToDelete(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogTitle className="text-base font-semibold">Delete approach?</DialogTitle>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">&ldquo;{solutionToDelete?.title}&rdquo;</span> and all its content will be permanently removed.
-          </p>
-          <div className="mt-2 flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setSolutionToDelete(null)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                if (solutionToDelete) void deleteSolution(solutionToDelete.id);
-                setSolutionToDelete(null);
-              }}
-            >
-              Delete
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </article>
   );
 }
