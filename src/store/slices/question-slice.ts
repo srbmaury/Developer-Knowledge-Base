@@ -168,24 +168,35 @@ export const createQuestionSlice: StateCreator<WorkspaceState, [], [], QuestionS
   },
   updateQuestionDescription: (questionId, description) => {
     if (!canEditQuestion(get().categories, questionId)) return;
-    set((state) => ({
-      categories: updateQuestionInTree(state.categories, questionId, (question) => ({
-        ...question,
-        description,
-        updatedAt: new Date().toISOString()
-      }))
-    }));
+    const now = new Date().toISOString();
+    set((state) => {
+      const categories = updateQuestionInTree(state.categories, questionId, (question) => ({
+        ...question, description, updatedAt: now
+      }));
+      const existing = state.questionById.get(questionId);
+      if (existing && state.searchIndex) {
+        const updated = { ...existing, description, updatedAt: now };
+        try { state.searchIndex.discard(questionId); } catch { /* not indexed yet */ }
+        state.searchIndex.add(questionToDoc(updated));
+      }
+      const questionById = new Map(state.questionById);
+      if (existing) questionById.set(questionId, { ...existing, description, updatedAt: now });
+      return { categories, questionById };
+    });
     scheduleQuestionDescriptionSave(questionId, description);
   },
   updateQuestionDifficulty: (questionId, difficulty) => {
     if (!canEditQuestion(get().categories, questionId)) return;
-    set((state) => ({
-      categories: updateQuestionInTree(state.categories, questionId, (question) => ({
-        ...question,
-        difficulty,
-        updatedAt: new Date().toISOString()
-      }))
-    }));
+    const now = new Date().toISOString();
+    set((state) => {
+      const categories = updateQuestionInTree(state.categories, questionId, (question) => ({
+        ...question, difficulty, updatedAt: now
+      }));
+      const existing = state.questionById.get(questionId);
+      const questionById = new Map(state.questionById);
+      if (existing) questionById.set(questionId, { ...existing, difficulty, updatedAt: now });
+      return { categories, questionById };
+    });
     scheduleQuestionDifficultySave(questionId, difficulty);
   },
   reorderQuestions: (categoryId, questionIds) => {

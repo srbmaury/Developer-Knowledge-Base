@@ -236,6 +236,25 @@ describe("setInitialData", () => {
     expect(store.getState().questionById.get("q1")?.title).toBe("Local edit");
   });
 
+  it("keeps a pasted description when setInitialData arrives during its pending save", async () => {
+    const store = await getStore();
+    const q1 = makeQuestion("q1", "cat-a");
+    const catA = makeCategory("cat-a", { questions: [q1] });
+    store.getState().setInitialData([catA]);
+
+    store.getState().updateQuestionDescription("q1", "Pasted description");
+
+    const remoteQuestion = {
+      ...q1,
+      description: "Stale description",
+      updatedAt: new Date(Date.now() - 5000).toISOString()
+    };
+    store.getState().setInitialData([makeCategory("cat-a", { questions: [remoteQuestion] })]);
+
+    expect(store.getState().categories[0].questions[0].description).toBe("Pasted description");
+    expect(store.getState().questionById.get("q1")?.description).toBe("Pasted description");
+  });
+
   it("keeps local solution content/notes when stale remote data arrives after a save", async () => {
     const store = await getStore();
     const q1 = makeQuestion("q1", "cat-a");
