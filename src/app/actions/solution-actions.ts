@@ -8,7 +8,7 @@ import type { SolutionLanguage } from "@/types/knowledge";
 import type { ReviewResult } from "@/lib/ai-answer";
 import { revalidateWorkspace, unauthorized } from "./shared";
 
-export async function createSolutionAction(input: { questionId: string; title: string }) {
+export async function createSolutionAction(input: { questionId: string; title: string; language?: SolutionLanguage }) {
   let userId: string;
   try {
     userId = await requireUserId();
@@ -22,11 +22,18 @@ export async function createSolutionAction(input: { questionId: string; title: s
   }
 
   const count = await prisma.solution.count({ where: { questionId: input.questionId } });
+  const previousSolution = input.language === undefined
+    ? await prisma.solution.findFirst({
+        where: { questionId: input.questionId },
+        orderBy: { order: "desc" },
+        select: { language: true }
+      })
+    : null;
   const solution = await prisma.solution.create({
     data: {
       questionId: input.questionId,
       title: input.title.trim() || "Untitled approach",
-      language: "none",
+      language: input.language ?? previousSolution?.language ?? "none",
       content: "",
       notes: "",
       order: count

@@ -45,11 +45,13 @@ export const createSolutionSlice: StateCreator<WorkspaceState, [], [], SolutionS
     const tempSolutionId = temporaryId("temp-solution");
     const question = get().questionById.get(questionId);
     const order = question?.solutions.length ?? 0;
+    const selectedSolution = question?.solutions.find((solution) => solution.id === get().selectedSolutionId);
+    const language = selectedSolution?.language ?? question?.solutions.at(-1)?.language ?? get().defaultLanguage;
     const optimisticSolution: Solution = {
       id: tempSolutionId,
       questionId,
       title,
-      language: get().defaultLanguage,
+      language,
       content: "",
       notes: "",
       aiReview: null,
@@ -69,7 +71,7 @@ export const createSolutionSlice: StateCreator<WorkspaceState, [], [], SolutionS
     }));
 
     try {
-      const result = await workspaceSync.createSolution(questionId, title);
+      const result = await workspaceSync.createSolution(questionId, title, language);
       if (!result.ok || !("id" in result)) {
         toast.error("Failed to create solution.");
         set((state) => ({

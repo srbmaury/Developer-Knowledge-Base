@@ -65,7 +65,8 @@ export const workspaceSync = {
   reorderQuestions: (categoryId: string, questionIds: string[]) =>
     reorderQuestionsAction({ categoryId, questionIds }),
 
-  createSolution: (questionId: string, title: string) => createSolutionAction({ questionId, title }),
+  createSolution: (questionId: string, title: string, language: SolutionLanguage) =>
+    createSolutionAction({ questionId, title, language }),
 
   deleteSolution: (solutionId: string) => deleteSolutionAction({ solutionId }),
 

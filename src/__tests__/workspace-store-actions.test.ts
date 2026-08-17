@@ -49,9 +49,9 @@ import type { Category, Question, Tag } from "@/types/knowledge";
 
 const NOW = new Date().toISOString();
 
-function makeSolution(id: string, questionId: string, order = 0) {
+function makeSolution(id: string, questionId: string, order = 0, opts?: { language?: "none" | "java" | "cpp" | "javascript" | "typescript" | "python" | "sql" }) {
   return {
-    id, questionId, title: "Best Approach", language: "typescript" as const,
+    id, questionId, title: "Best Approach", language: opts?.language ?? "typescript",
     content: "", notes: "", aiReview: null, contentLoaded: false, order,
     createdAt: NOW, updatedAt: NOW,
   };
@@ -326,6 +326,24 @@ describe("addSolution", () => {
     const solutions = s.getState().categories[0].questions[0].solutions;
     expect(solutions).toHaveLength(2);
     expect(solutions[1].id).toBe("real-sol-id");
+  });
+
+  it("inherits the selected solution language", async () => {
+    const s = await getStore();
+    const question = makeQuestion("q1", "cat-a", 0, {
+      solutions: [
+        makeSolution("s1", "q1", 0, { language: "java" }),
+        makeSolution("s2", "q1", 1, { language: "python" })
+      ]
+    });
+    s.getState().setInitialData([makeCategory("cat-a", { questions: [question] })]);
+    s.getState().selectSolution("s1");
+
+    await s.getState().addSolution("q1", "Follow-up");
+
+    const solutions = s.getState().categories[0].questions[0].solutions;
+    expect(solutions[2].language).toBe("java");
+    expect(mockSync.createSolution).toHaveBeenCalledWith("q1", "Follow-up", "java");
   });
 
   it("removes the optimistic solution on server error", async () => {
