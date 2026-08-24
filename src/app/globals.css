@@ -56,6 +56,8 @@
 html,
 body {
   height: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -63,6 +65,18 @@ body {
     radial-gradient(circle at top left, rgba(45, 125, 255, 0.12), transparent 32rem),
     linear-gradient(180deg, hsl(var(--background)), hsl(var(--background)));
   color: hsl(var(--foreground));
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+img,
+video,
+svg {
+  max-width: 100%;
+}
+
+.markdown-preview,
+.markdown-preview-body {
+  overflow-wrap: anywhere;
 }
 
 button,

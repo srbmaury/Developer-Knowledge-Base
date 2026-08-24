@@ -52,9 +52,12 @@ export function TopNav({ userEmail, isAdmin = false }: { userEmail: string | nul
   );
 
   return (
-    <nav className="shrink-0 flex items-center gap-1 border-b bg-background/95 px-4 backdrop-blur-xl">
-      <span className="shrink-0 pr-3 text-sm font-semibold">Developer Knowledge Base</span>
-      <div className="h-4 w-px shrink-0 bg-border" />
+    <nav className="flex min-h-12 shrink-0 items-center gap-1 border-b bg-background/95 px-2 backdrop-blur-xl sm:px-4">
+      <span className="min-w-0 truncate pr-1 text-sm font-semibold sm:pr-3">
+        <span className="sm:hidden">DKB</span>
+        <span className="hidden sm:inline">Developer Knowledge Base</span>
+      </span>
+      <div className="hidden h-4 w-px shrink-0 bg-border sm:block" />
       <div className="hidden items-center gap-1 xl:flex">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href;
@@ -126,7 +129,7 @@ export function TopNav({ userEmail, isAdmin = false }: { userEmail: string | nul
           </div>
         ) : null}
       </div>
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
         <input
           ref={importZipInputRef}
           type="file"
@@ -141,28 +144,50 @@ export function TopNav({ userEmail, isAdmin = false }: { userEmail: string | nul
         <Button
           type="button"
           variant="ghost"
+          size="icon"
+          className="sm:hidden"
           onClick={() => importZipInputRef.current?.click()}
           title="Import from .zip"
           aria-label="Import from zip"
         >
           <Upload className="h-4 w-4" />
-          <span className="hidden sm:inline">Import</span>
         </Button>
         <Button
           type="button"
           variant="ghost"
+          className="hidden sm:inline-flex"
+          onClick={() => importZipInputRef.current?.click()}
+          title="Import from .zip"
+        >
+          <Upload className="h-4 w-4" />
+          <span>Import</span>
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="sm:hidden"
           onClick={() => void exportWorkspaceToZip(categories)}
           title="Export all as .zip"
           aria-label="Export all as zip"
         >
           <Download className="h-4 w-4" />
-          <span className="hidden sm:inline">Export all</span>
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className="hidden sm:inline-flex"
+          onClick={() => void exportWorkspaceToZip(categories)}
+          title="Export all as .zip"
+        >
+          <Download className="h-4 w-4" />
+          <span>Export all</span>
         </Button>
         <button
           type="button"
           onClick={() => setShortcutsOpen(true)}
           title="Keyboard shortcuts (?)"
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="hidden h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:flex"
           aria-label="Keyboard shortcuts"
         >
           <Keyboard className="h-4 w-4" />

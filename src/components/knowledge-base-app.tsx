@@ -173,7 +173,7 @@ export function KnowledgeBaseApp({
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen flex-col overflow-hidden bg-background/85 text-foreground">
+      <div className="flex h-[100dvh] flex-col overflow-hidden bg-background/85 text-foreground">
         {!focusMode ? <TopNav userEmail={userEmail} isAdmin={isAdmin} /> : null}
         <main ref={containerRef} className="flex flex-1 min-h-0 overflow-hidden">
         {!focusMode && categoriesOpen ? (
@@ -213,7 +213,7 @@ export function KnowledgeBaseApp({
               Press <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">F</kbd> to exit focus mode
             </div>
           ) : null}
-          <header className={cn("sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur-xl sm:px-5", focusMode && "hidden")}>
+          <header className={cn("sticky top-0 z-30 flex h-14 shrink-0 items-center gap-1.5 border-b bg-background/85 px-2 backdrop-blur-xl sm:gap-2 sm:px-5", focusMode && "hidden")}>
             <Button
               variant="ghost"
               size="icon"
@@ -256,10 +256,10 @@ export function KnowledgeBaseApp({
             </Button>
             <button
               onClick={() => setCommandOpen(true)}
-              className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border bg-card px-3 text-left text-sm text-muted-foreground shadow-sm transition-colors hover:bg-muted"
+              className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border bg-card px-2 text-left text-sm text-muted-foreground shadow-sm transition-colors hover:bg-muted sm:px-3"
             >
               <Search className="h-4 w-4 shrink-0" />
-              <span className="truncate">Search questions, snippets, categories...</span>
+              <span className="truncate"><span className="sm:hidden">Search...</span><span className="hidden sm:inline">Search questions, snippets, categories...</span></span>
               <kbd className="ml-auto hidden rounded border bg-muted px-1.5 py-0.5 text-[10px] sm:inline">{isMac ? "⌘K" : "Ctrl K"}</kbd>
             </button>
             {canEditSelectedCategory ? (
@@ -275,7 +275,7 @@ export function KnowledgeBaseApp({
             ) : null}
           </header>
           {!focusMode ? (
-            <div className="grid min-h-0 shrink-0 grid-cols-1 lg:hidden">
+            <div className="hidden min-h-0 shrink-0 grid-cols-1 md:grid lg:hidden">
               <div className="max-h-72 overflow-hidden border-b bg-background/70 p-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">{selectedCategoryName}</p>
                 <QuestionList compact emptyMessage={emptyMessage} />
@@ -331,7 +331,7 @@ export function KnowledgeBaseApp({
         </Dialog>
         {canEditSelectedCategory ? (
           <Button
-            className="fixed bottom-5 right-5 z-40 h-12 w-12 rounded-full shadow-soft sm:hidden"
+            className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-5 z-40 h-12 w-12 rounded-full shadow-soft sm:hidden"
             size="icon"
             disabled={isCreatingQuestion}
             onClick={() => selectedCategoryId && void addQuestion(selectedCategoryId, "")}
