@@ -40,7 +40,18 @@ export function MarkdownWorkspace({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [splitPercent, setSplitPercent] = useState(50);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const dragging = useRef(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 639px)");
+    const syncViewport = () => setIsMobileViewport(media.matches);
+    syncViewport();
+    media.addEventListener("change", syncViewport);
+    return () => media.removeEventListener("change", syncViewport);
+  }, []);
+
+  const responsiveViewMode = isMobileViewport && effectiveViewMode === "split" ? "editor" : effectiveViewMode;
 
   const handleDividerMouseDown = useCallback(() => {
     dragging.current = true;
@@ -80,7 +91,7 @@ export function MarkdownWorkspace({
     <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2">
       <div className="flex items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {effectiveViewMode === "editor" ? "Editor" : effectiveViewMode === "split" ? "Split view" : "Preview"}
+          {responsiveViewMode === "editor" ? "Editor" : responsiveViewMode === "split" ? "Split view" : "Preview"}
         </span>
         {wordCount > 0 && (
           <span className="hidden text-[10px] text-muted-foreground/60 sm:inline">
@@ -105,9 +116,9 @@ export function MarkdownWorkspace({
       >
         <Button
           type="button" size="sm"
-          variant={effectiveViewMode === "editor" ? "secondary" : "ghost"}
-          className="h-8 gap-1.5 px-3"
-          role="tab" aria-selected={effectiveViewMode === "editor"}
+          variant={responsiveViewMode === "editor" ? "secondary" : "ghost"}
+          className="h-10 gap-1.5 px-3 sm:h-8"
+          role="tab" aria-selected={responsiveViewMode === "editor"}
           onClick={() => onViewModeChange("editor")}
           disabled={readOnly}
           title="Edit only"
@@ -117,9 +128,9 @@ export function MarkdownWorkspace({
         </Button>
         <Button
           type="button" size="sm"
-          variant={effectiveViewMode === "split" ? "secondary" : "ghost"}
-          className="h-8 gap-1.5 px-3"
-          role="tab" aria-selected={effectiveViewMode === "split"}
+          variant={responsiveViewMode === "split" ? "secondary" : "ghost"}
+          className="hidden h-8 gap-1.5 px-3 sm:inline-flex"
+          role="tab" aria-selected={responsiveViewMode === "split"}
           onClick={() => onViewModeChange("split")}
           disabled={readOnly}
           title="Split view"
@@ -129,9 +140,9 @@ export function MarkdownWorkspace({
         </Button>
         <Button
           type="button" size="sm"
-          variant={effectiveViewMode === "preview" ? "secondary" : "ghost"}
-          className="h-8 gap-1.5 px-3"
-          role="tab" aria-selected={effectiveViewMode === "preview"}
+          variant={responsiveViewMode === "preview" ? "secondary" : "ghost"}
+          className="h-10 gap-1.5 px-3 sm:h-8"
+          role="tab" aria-selected={responsiveViewMode === "preview"}
           onClick={() => onViewModeChange("preview")}
           title="Preview only"
         >
@@ -142,7 +153,7 @@ export function MarkdownWorkspace({
     </div>
   );
 
-  if (effectiveViewMode === "split") {
+  if (responsiveViewMode === "split") {
     return (
       <div className={cn("flex min-h-[min(560px,55vh)] flex-col", className)}>
         {toolbar}
@@ -173,7 +184,7 @@ export function MarkdownWorkspace({
   return (
     <div className={cn("flex min-h-[min(560px,55vh)] flex-col", className)}>
       {toolbar}
-      {effectiveViewMode === "editor" ? (
+      {responsiveViewMode === "editor" ? (
         <MarkdownEditor
           content={content}
           onChange={onChange}

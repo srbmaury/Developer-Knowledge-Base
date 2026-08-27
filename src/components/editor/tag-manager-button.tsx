@@ -62,7 +62,7 @@ export function TagManagerButton({
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1 rounded-full border border-dashed px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+        className="inline-flex min-h-10 items-center gap-1 rounded-full border border-dashed px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground sm:min-h-0 sm:px-2.5 sm:py-0.5"
       >
         <Plus className="h-3 w-3" /> Tag
       </button>

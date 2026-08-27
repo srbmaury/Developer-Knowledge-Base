@@ -33,7 +33,7 @@ export function StatusCycleButton({ status, onChange }: { status: QuestionStatus
   return (
     <button
       onClick={next}
-      className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors", config.className)}
+      className={cn("inline-flex min-h-10 items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors sm:min-h-0 sm:px-2.5 sm:py-0.5", config.className)}
       title={`Status: ${config.label} — click to change`}
     >
       {config.icon}

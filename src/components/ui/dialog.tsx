@@ -10,7 +10,11 @@ export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogTitle = DialogPrimitive.Title;
 export const DialogDescription = DialogPrimitive.Description;
 
-export function DialogContent({ className, children, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
+type DialogContentProps = React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+  showCloseButton?: boolean;
+};
+
+export function DialogContent({ className, children, showCloseButton = true, ...props }: DialogContentProps) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/70 backdrop-blur-sm" />
@@ -22,11 +26,13 @@ export function DialogContent({ className, children, ...props }: React.Component
         {...props}
       >
         {children}
-        <DialogPrimitive.Close asChild>
-          <Button className="absolute right-3 top-3" size="icon" variant="ghost" aria-label="Close dialog">
-            <X className="h-4 w-4" />
-          </Button>
-        </DialogPrimitive.Close>
+        {showCloseButton ? (
+          <DialogPrimitive.Close asChild>
+            <Button className="absolute right-3 top-3" size="icon" variant="ghost" aria-label="Close dialog">
+              <X className="h-4 w-4" />
+            </Button>
+          </DialogPrimitive.Close>
+        ) : null}
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );

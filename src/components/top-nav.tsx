@@ -52,7 +52,7 @@ export function TopNav({ userEmail, isAdmin = false }: { userEmail: string | nul
   );
 
   return (
-    <nav className="flex min-h-12 shrink-0 items-center gap-1 border-b bg-background/95 px-2 backdrop-blur-xl sm:px-4">
+    <nav className="relative z-40 flex min-h-12 shrink-0 items-center gap-1 border-b bg-background/95 px-2 backdrop-blur-xl sm:px-4">
       <span className="min-w-0 truncate pr-1 text-sm font-semibold sm:pr-3">
         <span className="sm:hidden">DKB</span>
         <span className="hidden sm:inline">Developer Knowledge Base</span>
@@ -90,7 +90,7 @@ export function TopNav({ userEmail, isAdmin = false }: { userEmail: string | nul
         <button
           type="button"
           onClick={() => setMobileNavOpen((open) => !open)}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:h-8 sm:w-8"
           aria-label="Open navigation menu"
           title="Navigation"
         >
@@ -102,7 +102,7 @@ export function TopNav({ userEmail, isAdmin = false }: { userEmail: string | nul
           ) : null}
         </button>
         {mobileNavOpen ? (
-          <div className="absolute left-0 top-full z-50 mt-1 min-w-52 rounded-lg border bg-card p-1 shadow-lg">
+          <div className="absolute left-0 top-full z-[60] mt-1 min-w-52 rounded-lg border bg-card p-1 shadow-lg">
             {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
               const active = pathname === href;
               const badge = href === "/review" && dueCount > 0 ? dueCount : null;
@@ -126,6 +126,22 @@ export function TopNav({ userEmail, isAdmin = false }: { userEmail: string | nul
                 </button>
               );
             })}
+            <div className="mt-1 border-t pt-1 sm:hidden">
+              <button
+                type="button"
+                onClick={() => { importZipInputRef.current?.click(); setMobileNavOpen(false); }}
+                className="flex min-h-11 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Upload className="h-4 w-4" /> Import workspace
+              </button>
+              <button
+                type="button"
+                onClick={() => { void exportWorkspaceToZip(categories); setMobileNavOpen(false); }}
+                className="flex min-h-11 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Download className="h-4 w-4" /> Export workspace
+              </button>
+            </div>
           </div>
         ) : null}
       </div>
@@ -144,34 +160,12 @@ export function TopNav({ userEmail, isAdmin = false }: { userEmail: string | nul
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="sm:hidden"
-          onClick={() => importZipInputRef.current?.click()}
-          title="Import from .zip"
-          aria-label="Import from zip"
-        >
-          <Upload className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
           className="hidden sm:inline-flex"
           onClick={() => importZipInputRef.current?.click()}
           title="Import from .zip"
         >
           <Upload className="h-4 w-4" />
           <span>Import</span>
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="sm:hidden"
-          onClick={() => void exportWorkspaceToZip(categories)}
-          title="Export all as .zip"
-          aria-label="Export all as zip"
-        >
-          <Download className="h-4 w-4" />
         </Button>
         <Button
           type="button"

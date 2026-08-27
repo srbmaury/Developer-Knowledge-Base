@@ -18,7 +18,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy
 } from "@dnd-kit/sortable";
-import { Check, CheckSquare, Download, FolderInput, Loader2, MoreHorizontal, PanelRightClose, Plus, Trash2, Upload, X } from "lucide-react";
+import { Check, CheckSquare, Download, FolderInput, Loader2, Lock, MoreHorizontal, PanelRightClose, Plus, Trash2, Unlock, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -68,6 +68,21 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
   const importInputRef = useRef<HTMLInputElement>(null);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const headerMenuRef = useRef<HTMLDivElement>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  // Start locked so touch input can never initiate a drag before the viewport
+  // effect runs. Desktop restores its existing unlocked behavior after mount.
+  const [reorderLocked, setReorderLocked] = useState(true);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const syncMobileReorderLock = () => {
+      setIsMobileViewport(media.matches);
+      setReorderLocked(media.matches);
+    };
+    syncMobileReorderLock();
+    media.addEventListener("change", syncMobileReorderLock);
+    return () => media.removeEventListener("change", syncMobileReorderLock);
+  }, []);
 
   useEffect(() => {
     if (!headerMenuOpen) return;
@@ -264,7 +279,7 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
     const category = getCategoryForQuestion(categories, question.id);
     const canOwn = !isTemp && (category?.canEdit ?? false);
     // canDrag is disabled in virtual/global modes (DnD doesn't work there); delete is always available to owners
-    const canEdit = canOwn && !opts?.global && !opts?.virtual;
+    const canEdit = canOwn && !opts?.global && !opts?.virtual && !reorderLocked;
     const canDelete = canOwn;
     return (
       <SortableQuestionCard
@@ -296,12 +311,23 @@ export function QuestionList({ compact = false, onCollapse, emptyMessage }: { co
               <p className="text-xs text-muted-foreground">
                 {isGlobalMode && selectedCategory
                   ? `${questions.length} across all categories`
-                  : `${questions.length} note${questions.length === 1 ? "" : "s"}${!isGlobalMode && questions.length > 1 ? " · drag to reorder" : ""}`}
+                  : `${questions.length} note${questions.length === 1 ? "" : "s"}${!isGlobalMode && questions.length > 1 ? ` · ${reorderLocked ? "reordering locked" : "drag to reorder"}` : ""}`}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {canEditSelectedCategory ? (
                 <>
+                  {isMobileViewport && !isGlobalMode && questions.length > 1 ? (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setReorderLocked((locked) => !locked)}
+                      aria-label={reorderLocked ? "Unlock note reordering" : "Lock note reordering"}
+                      title={reorderLocked ? "Unlock note reordering" : "Lock note reordering"}
+                    >
+                      {reorderLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                    </Button>
+                  ) : null}
                   <div ref={headerMenuRef} className="relative">
                     <Button
                       size="icon"

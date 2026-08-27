@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { Category } from "@/types/knowledge";
 
@@ -35,6 +35,7 @@ export function CategoryPickerDialog({
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-sm">
         <DialogTitle className="text-base font-semibold">Move to category</DialogTitle>
+        <DialogDescription className="sr-only">Choose the destination category for the selected questions.</DialogDescription>
         <Input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search categories…" className="mb-1" />
         <div className="max-h-64 overflow-y-auto space-y-0.5 rounded-md border p-1">
           {filtered.length === 0 ? (

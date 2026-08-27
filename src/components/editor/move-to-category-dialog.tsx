@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { Category } from "@/types/knowledge";
 import { flattenCategoriesWithPath } from "./editor-pane-utils";
@@ -31,6 +31,7 @@ export function MoveToCategoryDialog({
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-sm">
         <DialogTitle className="text-base font-semibold">Move to category</DialogTitle>
+        <DialogDescription className="sr-only">Choose the destination category for this question.</DialogDescription>
         <Input
           autoFocus
           value={search}

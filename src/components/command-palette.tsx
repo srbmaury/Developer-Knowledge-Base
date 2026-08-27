@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Command } from "cmdk";
 import { CheckCircle, Clock, FileText, Folder, Search, Star } from "lucide-react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { getAllQuestions, useWorkspaceStore } from "@/store/workspace-store";
 import type { Category, Question } from "@/types/knowledge";
 
@@ -144,6 +144,7 @@ export function CommandPalette() {
     <Dialog open={commandOpen} onOpenChange={setCommandOpen}>
       <DialogContent className="overflow-hidden p-0">
         <DialogTitle className="sr-only">Command palette</DialogTitle>
+        <DialogDescription className="sr-only">Search notes and categories, then choose a result.</DialogDescription>
         <Command className="bg-card" shouldFilter={!query.trim()}>
           <div className="flex items-center gap-2 border-b px-4">
             <Search className="h-4 w-4 text-muted-foreground" />

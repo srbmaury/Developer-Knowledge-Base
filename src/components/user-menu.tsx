@@ -109,9 +109,9 @@ export function UserMenu({ email, isAdmin = false }: UserMenuProps) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button className="w-full justify-start gap-2" variant="ghost">
+        <Button className="h-10 w-10 shrink-0 justify-center px-0 sm:h-9 sm:w-auto sm:justify-start sm:gap-2 sm:px-4" variant="ghost" aria-label={`Account: ${email}`}>
           <User className="h-4 w-4 shrink-0" />
-          <span className="truncate text-left text-sm">{email}</span>
+          <span className="hidden max-w-48 truncate text-left text-sm sm:inline">{email}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-sm">

@@ -291,7 +291,7 @@ export function EditorPane() {
   }
 
   return (
-    <article ref={articleRef} className="min-w-0">
+    <article ref={articleRef} className="min-w-0 pb-24 sm:pb-0">
       <div className="mx-auto w-full max-w-6xl px-3 py-4 sm:px-8 sm:py-6">
         <div className="flex flex-col gap-4 border-b pb-5">
         <div className="flex flex-col gap-3">
@@ -325,7 +325,7 @@ export function EditorPane() {
                     disabled={!canEdit}
                     onClick={() => updateQuestionDifficulty(question.id, level.value as Difficulty)}
                     className={cn(
-                      "border-r px-3 py-1.5 text-xs font-medium last:border-r-0 transition-colors disabled:cursor-default",
+                      "min-h-10 border-r px-3 py-1.5 text-xs font-medium last:border-r-0 transition-colors disabled:cursor-default sm:min-h-0",
                       question.difficulty === level.value
                         ? difficultyBadgeClass(level.value)
                         : "bg-background text-muted-foreground enabled:hover:bg-muted"

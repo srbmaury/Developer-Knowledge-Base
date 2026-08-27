@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, type DragEndEvent, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronRight, ChevronDown, ChevronUp, Folder, FolderOpen, Globe2, GripVertical, Inbox, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2 } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronUp, Folder, FolderOpen, Globe2, GripVertical, Inbox, Lock, Moon, PanelLeftClose, Plus, Sun, Trash2, Unlock } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -82,12 +82,25 @@ export function Sidebar({
   } = useWorkspaceStore();
 
   const [pendingRootName, setPendingRootName] = useState<string | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [reorderLocked, setReorderLocked] = useState(true);
   const [pendingDeleteCategoryIds, setPendingDeleteCategoryIds] = useState<Set<string>>(new Set());
   const deleteCategoryTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
     const timers = deleteCategoryTimers.current;
     return () => { timers.forEach(clearTimeout); };
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const syncMobileReorderLock = () => {
+      setIsMobileViewport(media.matches);
+      setReorderLocked(media.matches);
+    };
+    syncMobileReorderLock();
+    media.addEventListener("change", syncMobileReorderLock);
+    return () => media.removeEventListener("change", syncMobileReorderLock);
   }, []);
 
   function handleDeleteCategoryRequest(categoryId: string) {
@@ -296,6 +309,18 @@ export function Sidebar({
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Categories</p>
             </div>
             <div className="flex items-center gap-2">
+              {isMobileViewport ? (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-9 w-9"
+                  onClick={() => setReorderLocked((locked) => !locked)}
+                  aria-label={reorderLocked ? "Unlock category reordering" : "Lock category reordering"}
+                  title={reorderLocked ? "Unlock category reordering" : "Lock category reordering"}
+                >
+                  {reorderLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                </Button>
+              ) : null}
               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={expandAll} aria-label="Expand all categories" title="Expand all">
                 <ChevronDown className="h-4 w-4" />
               </Button>
@@ -338,6 +363,7 @@ export function Sidebar({
                     category={category}
                     depth={0}
                     sensors={sensors}
+                    canReorder={!reorderLocked}
                     onDragEnd={handleCategoryDragEnd}
                     onDeleteRequest={handleDeleteCategoryRequest}
                   />
@@ -375,7 +401,7 @@ function countSubtreeSolved(category: Category): number {
 }
 
 
-function CategoryNode({ category, depth, sensors, onDragEnd, onDeleteRequest }: { category: Category; depth: number; sensors: ReturnType<typeof useSensors>; onDragEnd: (event: DragEndEvent, parentId: string | null) => void; onDeleteRequest: (id: string) => void }) {
+function CategoryNode({ category, depth, sensors, canReorder, onDragEnd, onDeleteRequest }: { category: Category; depth: number; sensors: ReturnType<typeof useSensors>; canReorder: boolean; onDragEnd: (event: DragEndEvent, parentId: string | null) => void; onDeleteRequest: (id: string) => void }) {
   const {
     selectedCategoryId,
     expandedCategoryIds,
@@ -387,7 +413,7 @@ function CategoryNode({ category, depth, sensors, onDragEnd, onDeleteRequest }: 
   } = useWorkspaceStore();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: category.id,
-    disabled: !category.canEdit
+    disabled: !category.canEdit || !canReorder
   });
   const expanded = expandedCategoryIds.includes(category.id);
   const active = selectedCategoryId === category.id;
@@ -423,7 +449,7 @@ function CategoryNode({ category, depth, sensors, onDragEnd, onDeleteRequest }: 
             style={{ paddingLeft: `${depth * 10 + 8}px` }}
           >
             {expanded ? <FolderOpen className="h-4 w-4 shrink-0 text-accent" /> : <Folder className="h-4 w-4 shrink-0" />}
-            {category.canEdit ? (
+            {category.canEdit && canReorder ? (
               <button
                 type="button"
                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted/80 hover:text-foreground"
@@ -510,6 +536,7 @@ function CategoryNode({ category, depth, sensors, onDragEnd, onDeleteRequest }: 
                   category={child}
                   depth={depth + 1}
                   sensors={sensors}
+                  canReorder={canReorder}
                   onDragEnd={onDragEnd}
                   onDeleteRequest={onDeleteRequest}
                 />

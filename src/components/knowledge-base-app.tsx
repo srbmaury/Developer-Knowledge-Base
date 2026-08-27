@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useHotkeys, useSequenceHotkey, useSingleHotkey } from "@/components/use-hotkeys";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { CommandPalette } from "@/components/command-palette";
 import { QuickCaptureModal } from "@/components/quick-capture-modal";
 import { EditorPane } from "@/components/editor-pane";
@@ -289,8 +289,9 @@ export function KnowledgeBaseApp({
         <CommandPalette />
         <QuickCaptureModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
         <Dialog open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-          <DialogContent className={MOBILE_DRAWER_CLASS}>
+          <DialogContent className={MOBILE_DRAWER_CLASS} showCloseButton={false}>
             <DialogTitle className="sr-only">Categories</DialogTitle>
+            <DialogDescription className="sr-only">Browse and select a category.</DialogDescription>
             <Sidebar
               canCreateRootCategory={canCreateRootCategory}
               onCollapse={() => setMobileSidebarOpen(false)}
@@ -298,14 +299,16 @@ export function KnowledgeBaseApp({
           </DialogContent>
         </Dialog>
         <Dialog open={mobileQuestionsOpen} onOpenChange={setMobileQuestionsOpen}>
-          <DialogContent className={MOBILE_DRAWER_CLASS}>
+          <DialogContent className={MOBILE_DRAWER_CLASS} showCloseButton={false}>
             <DialogTitle className="sr-only">Questions</DialogTitle>
+            <DialogDescription className="sr-only">Browse, filter, and select a question.</DialogDescription>
             <QuestionList onCollapse={() => setMobileQuestionsOpen(false)} emptyMessage={emptyMessage} />
           </DialogContent>
         </Dialog>
         <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
           <DialogContent className="max-w-sm">
             <DialogTitle className="text-base font-semibold">Keyboard shortcuts</DialogTitle>
+            <DialogDescription className="sr-only">Available keyboard shortcuts for the workspace.</DialogDescription>
             <div className="space-y-1 text-sm">
               {[
                 { keys: isMac ? ["⌘", "K"] : ["Ctrl", "K"], label: "Open search" },

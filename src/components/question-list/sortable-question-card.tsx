@@ -50,7 +50,7 @@ export function SortableQuestionCard({
   return (
     <div
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, touchAction: "none" }}
+      style={{ transform: CSS.Transform.toString(transform), transition, touchAction: canEdit ? "none" : "pan-y" }}
       className={cn(
         "group relative w-full rounded-lg border bg-card p-3 text-left shadow-sm transition-[box-shadow,border-color] hover:border-primary/40 hover:shadow-md",
         selected && "border-primary/60 ring-1 ring-primary/30",

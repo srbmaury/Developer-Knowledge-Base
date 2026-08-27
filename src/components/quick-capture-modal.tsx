@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Inbox, Loader2 } from "lucide-react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { getAllQuestions, useWorkspaceStore } from "@/store/workspace-store";
 import type { Category } from "@/types/knowledge";
@@ -73,6 +73,7 @@ export function QuickCaptureModal({ open, onClose }: { open: boolean; onClose: (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-md p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">Quick capture</DialogTitle>
+        <DialogDescription className="sr-only">Create a note in the Inbox without leaving the current view.</DialogDescription>
         <div className="flex items-center justify-between gap-2 border-b px-4 py-3 pr-10">
           <div className="flex items-center gap-2 text-sm font-medium">
             <Inbox className="h-4 w-4 text-primary" />
